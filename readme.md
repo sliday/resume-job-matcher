@@ -35,8 +35,8 @@ This tool is designed to streamline the recruitment process by efficiently proce
 ### 1. Clone the Repository
 
 ```bash
-git clone https://github.com/yourusername/resume-matcher.git
-cd resume-matcher
+git clone https://github.com/sliday/resume-job-matcher.git
+cd resume-job-matcher
 ```
 
 ### 2. Set Up a Virtual Environment (Optional but Recommended)
