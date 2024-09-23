@@ -1,8 +1,8 @@
-# Resume Matcher
+# Resume Job Matcher
 
 ## Overview
 
-**Resume Matcher** is a Python script that automates the process of matching resumes to a job description using AI. It leverages the Anthropic Claude API to analyze resumes and provide a match score along with personalized email responses for candidates.
+**Resume Job Matcher** is a Python script that automates the process of matching resumes to a job description using AI. It leverages the Anthropic Claude API to analyze resumes and provide a match score along with personalized email responses for candidates.
 
 This tool is designed to streamline the recruitment process by efficiently processing multiple resumes and highlighting the best candidates based on customizable criteria.
 
@@ -272,8 +272,7 @@ We welcome contributions! Please follow these steps:
 ## Acknowledgments
 
 - **Anthropic Claude API**: For providing advanced AI capabilities.
-- **Contributors**: Thank you to all contributors who have helped improve this project.
 
 ---
 
-Enjoy using the Resume Matcher script to streamline your recruitment process!
+Enjoy using the Resume Job Matcher script to streamline your recruitment process!

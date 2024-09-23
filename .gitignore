@@ -1,3 +1,4 @@
 # Ignore src and out folders
 src/
 out/
+.DS_Store
