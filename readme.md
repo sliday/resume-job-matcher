@@ -18,7 +18,7 @@ This tool is designed to streamline the recruitment process by efficiently proce
 - **Website Content Integration**: Includes personal website content in the evaluation if provided.
 - **Detailed Logging and Error Handling**: Provides robust logging and gracefully handles exceptions.
 
-![CleanShot 2024-09-23 at 21 47 56@2x](https://github.com/user-attachments/assets/6f2ea9b6-e082-46b6-ab8b-948b38016a68)
+![CleanShot 2024-09-23 at 23 02 45@2x](https://github.com/user-attachments/assets/bc789343-839e-44bc-b3fb-df3cedf869a8)
 
 ## Requirements
 
