@@ -1,29 +1,32 @@
-🚨 We're hiring a Frontend Developer at [Company URL]
+🚨 We're hiring a Frontend Developer!
 
-At [Company Name], we're developing B2B AI-powered services, collaborating weekly and working asynchronously via GitHub and Slack.
+At our company, we're focused on developing cutting-edge B2E AI solutions, with a strong emphasis on asynchronous collaboration using GitHub and Slack, and weekly syncs.
 
-We need a frontend developer to build a modern web app from scratch, work independently on its UI, and collaborate with a small team to develop the entire product.
+**Who are we looking for?**
+A frontend developer to spearhead the creation of a modern web application, handle the UI independently, and work closely with a small team to bring the entire product to life.
 
-Tech stack:
+**Our Tech Stack:**
 - React & Redux with TypeScript (Feature-Sliced Design)
 - Tailwind CSS
-- Shadcn UI
-- AI-assisted coding tools
+- Shadcn's UI components
+- Cursor AI
 - React Router
 - Vite
 
-Ideal candidate:
-- Detail-oriented; appreciates slick UI
-- Experienced in shipping features using React and TypeScript
-- Thinks in terms of features and user journeys
-- Understands complex state management and its product impact
-- Interacts effectively with backend team on API design and quality
+**The Ideal Candidate:**
+- Has a sharp eye for detail and values well-crafted UI.
+- Proven experience delivering features with React and TypeScript in product environments.
+- Understands the bigger picture—focusing on features and user journeys, not just code.
+- Possesses a solid grasp of complex state management and its implications on the product.
+- Works effectively with backend teams, participating in API design, spec reviews, and performance considerations.
 
-Hiring Process:
-- Send resume to [email address]
-- 1-on-1 pair programming interview with lead dev
-- Meet the founders
+**Hiring Process:**
+- Submit your resume to [email]
+- 1-on-1 pair programming interview with our lead developer
+- Final meeting with the founders
 
-Details:
-- Fully remote (preferred time zone overlap: 5-6 hours)
-- Paperwork and payments via third-party platform
+**Additional Information:**
+- Fully remote (preferable 5-6 hours overlap with EST/CEST)
+- Paperwork and payments handled through Deel
+
+If this sounds like you, we’d love to hear from you!
