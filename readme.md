@@ -1,10 +1,12 @@
-# Resume Matcher
+# Resume Job Matcher
 
 ## Overview
 
-**Resume Matcher** is a Python script that automates the process of matching resumes to a job description using AI. It leverages the Anthropic Claude API to analyze resumes and provide a match score along with personalized email responses for candidates.
+**Resume Job Matcher** is a Python script that automates the process of matching resumes to a job description using AI. It leverages the Anthropic Claude API to analyze resumes and provide a match score along with personalized email responses for candidates.
 
 This tool is designed to streamline the recruitment process by efficiently processing multiple resumes and highlighting the best candidates based on customizable criteria.
+
+![Area](https://github.com/user-attachments/assets/1fee4382-7462-4463-9cb1-61704eea218b)
 
 ## Features
 
@@ -15,6 +17,8 @@ This tool is designed to streamline the recruitment process by efficiently proce
 - **Personalized Communication**: Generates professional email responses for candidates.
 - **Website Content Integration**: Includes personal website content in the evaluation if provided.
 - **Detailed Logging and Error Handling**: Provides robust logging and gracefully handles exceptions.
+
+![CleanShot 2024-09-23 at 23 02 45@2x](https://github.com/user-attachments/assets/bc789343-839e-44bc-b3fb-df3cedf869a8)
 
 ## Requirements
 
@@ -35,8 +39,8 @@ This tool is designed to streamline the recruitment process by efficiently proce
 ### 1. Clone the Repository
 
 ```bash
-git clone https://github.com/yourusername/resume-matcher.git
-cd resume-matcher
+git clone https://github.com/sliday/resume-job-matcher.git
+cd resume-job-matcher
 ```
 
 ### 2. Set Up a Virtual Environment (Optional but Recommended)
@@ -272,8 +276,7 @@ We welcome contributions! Please follow these steps:
 ## Acknowledgments
 
 - **Anthropic Claude API**: For providing advanced AI capabilities.
-- **Contributors**: Thank you to all contributors who have helped improve this project.
 
 ---
 
-Enjoy using the Resume Matcher script to streamline your recruitment process!
+Enjoy using the Resume Job Matcher script to streamline your recruitment process!
