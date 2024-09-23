@@ -1,30 +1,29 @@
-🚨 I'm hiring a Frontend Developer at http://usesky.ai
+🚨 We're hiring a Frontend Developer at [Company URL]
 
-At Sky, we're developing B2E AI document processing services, syncing weekly and working asynchronously via GitHub and Slack.
+At [Company Name], we're developing B2B AI-powered services, collaborating weekly and working asynchronously via GitHub and Slack.
 
-Who are we looking for?
 We need a frontend developer to build a modern web app from scratch, work independently on its UI, and collaborate with a small team to develop the entire product.
 
-What tech stack are we using?
+Tech stack:
 - React & Redux with TypeScript (Feature-Sliced Design)
-- @tailwindcss
-- @shadcn's UI
-- @cursor_ai
+- Tailwind CSS
+- Shadcn UI
+- AI-assisted coding tools
 - React Router
 - Vite
 
-Ideal candidate
-- Detail-oriented; appreciates slick UI.
-- Experienced shipping features using React and TypeScript on product teams.
-- Thinks in terms of features and user journeys, not just code.
-- Comprehends complex state management and its product impact when poorly executed.
-- Interacts with backend team on API design, reviews specs, evaluates API quality, anticipates performance impacts, and communicates effectively.
+Ideal candidate:
+- Detail-oriented; appreciates slick UI
+- Experienced in shipping features using React and TypeScript
+- Thinks in terms of features and user journeys
+- Understands complex state management and its product impact
+- Interacts effectively with backend team on API design and quality
 
-Hiring Process
-- Send resume to stas@usesky.ai
+Hiring Process:
+- Send resume to [email address]
 - 1-on-1 pair programming interview with lead dev
 - Meet the founders
 
-Misc
-- Fully remote (EST/CEST mainly), 5-6h overlap is preferable
-- Paperwork and payments via @deel
+Details:
+- Fully remote (preferred time zone overlap: 5-6 hours)
+- Paperwork and payments via third-party platform
