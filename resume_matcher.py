@@ -47,7 +47,7 @@ Advanced method:
 job_description:
   required_experience_years: 5  # Extracted number of years of experience
   required_education_level: 'Masters'  # Extracted minimum education level
-  required_skills (SAMPLE, see job_description.txt):
+  required_skills:  # SAMPLE, see job_description.txt
     - 'Python'
     - 'Machine Learning'
     - 'Data Analysis'
@@ -76,44 +76,60 @@ job_description:
 
 # Step 2: Define Scoring Criteria Based on Extracted Requirements
 criteria:
-  - name: 'Language proficiency'
+  - name: 'Language Proficiency'
     weight: 10
     scoring_logic:
       description: |
-        Assign points based on the candidate's language proficiency.
+        Assign points based on the candidate's language proficiency, with additional points for multilingual abilities or proficiency in languages relevant to the job.
       levels:
         'Native': 100
-        'Fluent': 80
-        'Intermediate': 60
-        'Basic': 40
+        'Fluent': 90
+        'Professional Working Proficiency': 80
+        'Intermediate': 70
+        'Basic': 50
+      multilingual_bonus: 10  # Additional points for each additional relevant language
+
   - name: 'Education Level'
     weight: "job_description.emphasis.education_weight"
     scoring_logic:
       description: |
-        Assign points based on the candidate's highest degree. If the candidate's education level meets or exceeds the required level, full points are awarded. If it is one level below, half points are awarded. Otherwise, zero points.
+        Assign points based on the candidate's highest degree or equivalent experience. If the candidate's education level meets or exceeds the required level, full points are awarded. If it is one level below, 75% of points are awarded. If two levels below, 50% of points are awarded. Relevant certifications or significant relevant experience can compensate for lacking formal education.
       levels:
         'PhD': 100
-        'Masters': 80
-        'Bachelors': 60
-        'Associate': 40
-        'High School': 20
-    required_level: "job_description.required_education_level"
+        'Masters': 90
+        'Bachelors': 80
+        'Associate': 70
+        'High School': 60
+        'No Formal Education': 50
+      alternative_paths_bonus: 20  # Additional points for relevant certifications or significant experience
+      required_level: "job_description.required_education_level"
 
   - name: 'Years of Experience'
     weight: "job_description.emphasis.experience_weight"
     scoring_logic:
       description: |
-        Calculate points proportionally based on the required experience. Full points for meeting or exceeding required years.
+        Calculate points proportionally based on the required experience. Full points for meeting or exceeding required years. Additional points for highly relevant experience. Partial points for experience slightly below the required years.
       required_years: "job_description.required_experience_years"
       max_points: 100
+      experience_points_formula: |
+        If candidate_years >= required_years:
+          points = 100 + (candidate_years - required_years) * 2  # Bonus points for extra years, up to a cap
+        Else:
+          points = (candidate_years / required_years) * 100
+      max_bonus_points: 20  # Cap for bonus points
 
   - name: 'Technical Skills'
     weight: "job_description.emphasis.technical_skills_weight"
     scoring_logic:
       description: |
-        Assign points for each required and optional skill. Required skills have higher points than optional skills.
-      required_skills_points: 10  # Points per required skill
-      optional_skills_points: 5   # Points per optional skill
+        Assign points for each required and optional skill, weighted by the candidate's proficiency level in each skill. Required skills have higher weight than optional skills. Proficiency levels are considered.
+      proficiency_levels:
+        'Expert': 100
+        'Advanced': 80
+        'Intermediate': 60
+        'Beginner': 40
+      required_skills_weight: 1.0  # Multiplier for required skills
+      optional_skills_weight: 0.5  # Multiplier for optional skills
       required_skills: "job_description.required_skills"
       optional_skills: "job_description.optional_skills"
       keywords_points: 2          # Additional points per keyword matched
@@ -123,40 +139,61 @@ criteria:
     weight: 10  # Static weight unless specified in job description
     scoring_logic:
       description: |
-        Assign points for each preferred certification the candidate possesses.
+        Assign points for each preferred certification the candidate possesses. Equivalent certifications or significant practical experience can also earn points.
       certifications_points: 5  # Points per certification
       certifications_preferred: "job_description.certifications_preferred"
+      equivalent_certifications_bonus: 5  # Points for equivalent certifications
+      practical_experience_bonus: 5       # Points for practical experience demonstrating certification-level expertise
 
   - name: 'Soft Skills'
     weight: "job_description.emphasis.soft_skills_weight"
     scoring_logic:
       description: |
-        Assign points for each soft skill mentioned in the resume.
-      soft_skills_points: 5  # Points per soft skill
+        Assign points for each soft skill mentioned in the resume, considering the candidate's demonstrated proficiency or examples of these skills.
+      soft_skills_points: 5     # Base points per soft skill
+      proficiency_bonus: 5      # Additional points if proficiency is demonstrated through examples or achievements
       soft_skills: "job_description.soft_skills"
 
   - name: 'Relevance of Experience'
     weight: 10  # Additional weight for relevant job titles or industries
     scoring_logic:
       description: |
-        Assign points if the candidate has worked in similar roles or industries.
+        Assign points if the candidate has worked in similar or related roles or industries. Consider transferable skills and experiences.
       relevant_titles_points: 10  # Points if matching job titles are found
+      related_titles_points: 5    # Points for related job titles
       relevant_titles: "job_description.keywords_to_match"
+      consider_transferable_skills: true
 
-# Step 3: Calculate the final score: 0 - 100
+  - name: 'Non-Traditional Experience'
+    weight: 5
+    scoring_logic:
+      description: |
+        Assign points for relevant experience gained through non-traditional means, such as open-source contributions, personal projects, volunteer work, or self-directed learning.
+      max_points: 100
 
-# Step 4: Additional Settings
+# Step 3: Additional Settings
 max_total_score: 100  # The scoring logic should normalize scores to this maximum
+normalization_method: |
+  The total score from all criteria will be scaled to a maximum of 100. Each criterion's score will be calculated based on its weight, and the sum will be normalized accordingly.
+career_breaks_policy:
+  description: |
+    Candidates will not be penalized for career breaks. The scoring system will focus on the relevance and quality of experience, not just continuity.
 notes: |
   - The scoring system dynamically adjusts criteria weights based on the job description.
   - Emphasizes the most critical aspects of the job requirements.
   - Encourages a more tailored and fair evaluation of candidates.
+  - Considers alternative education paths, non-traditional experience, and transferable skills.
+  - Does not penalize candidates for career breaks or non-linear career paths.
+
+# Step 4: Calculate the final score: 0 - 100
+The scoring logic should normalize the total score to a maximum of 100.
 
 Resume:
 ===
 {resume_text}
 ===
-Job Description (job_description.txt content):
+
+job_description.txt:
 ===
 {job_desc}
 ===
