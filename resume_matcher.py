@@ -592,8 +592,6 @@ Strictly JSON. No explanations. No \`\`\`json\`\`\` wrappers.
             # Ensure the final score is between 0 and 100
             final_score = min(max(normalized_combined_score, 0), 100)
             
-            print(f"DEBUG: resume_quality_score = {resume_quality_score}")
-            print(f"DEBUG: score = {score}")
             return {'score': final_score, 'match_reasons': match_reasons, 'website': website}
         else:
             return {'score': 0.0, 'match_reasons': "Error: No response from AI", 'website': ''}
