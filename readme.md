@@ -199,6 +199,15 @@ The following Python packages are required for this project:
 - requests: To make HTTP requests for fetching website content
 - beautifulsoup4: For parsing HTML content from personal websites
 
+## Star History
+
+<a href="https://star-history.com/#sliday/resume-job-matcher&Date">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=sliday/resume-job-matcher&type=Date&theme=dark" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=sliday/resume-job-matcher&type=Date" />
+   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=sliday/resume-job-matcher&type=Date" />
+ </picture>
+</a>
 To install these packages, you can use pip:
 
 ```bash
