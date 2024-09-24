@@ -188,6 +188,8 @@ notes: |
 # Step 4: Calculate the final score: 0 - 100
 The scoring logic should normalize the total score to a maximum of 100.
 
+# Step 5: Check your results and make sure you are happy with them.
+
 Resume:
 ===
 {resume_text}
@@ -219,7 +221,7 @@ Strictly JSON. No explanations. No \`\`\`json\`\`\` wrappers.
     try:
         message = client.messages.create(
             model="claude-3-sonnet-20240229",
-            max_tokens=300,
+            max_tokens=350,
             messages=[{"role": "user", "content": prompt}]
         )
         

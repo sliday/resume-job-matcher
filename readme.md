@@ -4,7 +4,7 @@
 
 **Resume Job Matcher** is a Python script that automates the process of matching resumes to a job description using AI. It leverages the Anthropic Claude API to analyze resumes and provide a match score along with personalized email responses for candidates.
 
-This tool is designed to streamline the recruitment process by efficiently processing multiple resumes and highlighting the best candidates based on customizable criteria.
+This tool is designed to streamline the recruitment process by efficiently processing multiple resumes and highlighting the best candidates based on customizable criteria. The script uses advanced natural language processing to compare resume content with job requirements, considering factors such as skills, experience, education, and even personal website content when available.
 
 ![Area](https://github.com/user-attachments/assets/1fee4382-7462-4463-9cb1-61704eea218b)
 
@@ -17,158 +17,53 @@ This tool is designed to streamline the recruitment process by efficiently proce
 - **Personalized Communication**: Generates professional email responses for candidates.
 - **Website Content Integration**: Includes personal website content in the evaluation if provided.
 - **Detailed Logging and Error Handling**: Provides robust logging and gracefully handles exceptions.
+- **Interactive Console Output**: Displays a fun "resume matching dance" animation during processing.
+- **Comprehensive Result Summary**: Provides a detailed summary of top, average, and bottom scores.
 
 ![CleanShot 2024-09-23 at 23 02 45@2x](https://github.com/user-attachments/assets/bc789343-839e-44bc-b3fb-df3cedf869a8)
 
-## Requirements
+## Scoring System and Output Interpretation
 
-- **Python**: 3.6 or higher
-- **APIs**:
-  - [Anthropic Claude API](https://www.anthropic.com/product)
-- **Python Packages**:
-  - `PyPDF2`
-  - `anthropic`
-  - `tqdm`
-  - `termcolor`
-  - `json5`
-  - `requests`
-  - `beautifulsoup4`
+### Scoring Mechanism
 
-## Installation
+The script uses a sophisticated scoring system that considers various factors:
 
-### 1. Clone the Repository
-
-```bash
-git clone https://github.com/sliday/resume-job-matcher.git
-cd resume-job-matcher
-```
-
-### 2. Set Up a Virtual Environment (Optional but Recommended)
-
-```bash
-python -m venv venv
-source venv/bin/activate  # On Windows use 'venv\Scripts\activate'
-```
-
-### 3. Install Dependencies
-
-```bash
-pip install -r requirements.txt
-```
-
-If `requirements.txt` is not provided, install dependencies manually:
-
-```bash
-pip install PyPDF2 anthropic tqdm termcolor json5 requests beautifulsoup4
-```
-
-### 4. Set Environment Variables
-
-Set your Claude API key as an environment variable:
-
-**On Linux/macOS:**
-
-```bash
-export CLAUDE_API_KEY=your_api_key
-```
-
-**On Windows:**
-
-```cmd
-set CLAUDE_API_KEY=your_api_key
-```
-
-Replace `your_api_key` with your actual Claude API key.
-
-## Usage
-
-### 1. Prepare the Job Description
-
-Create a file named `job_description.txt` in the project directory containing the job description. This file should include:
-
-- Job title
-- Required skills
-- Optional skills
-- Preferred certifications
+- Match between resume content and job requirements
+- Relevance of skills and experience
+- Education level
+- Years of experience
+- Certifications
 - Soft skills
-- Required education level
-- Required years of experience
-- Emphasis weights for different criteria
+- Personal website content (if available)
 
-**Example `job_description.txt`:**
+The AI model analyzes these factors and assigns a score from 0 to 100.
 
-```
-Senior Machine Learning Engineer
+### Output Interpretation
 
-We are looking for a senior machine learning engineer with at least 5 years of experience in machine learning, data analysis, and software development.
+- **Emojis and Labels**: Each candidate is assigned an emoji and label based on their score. For example:
+  - `🌟🚀 98% - Cosmic Perfection`
+  - `🦄✨ 95% - Unicorn Candidate`
+  - `🌠💫 93% - Superstar Plus`
+  - ...
+  - `☄️ 10% - Cosmic Mismatch`
 
-Required Skills:
-- Python
-- Machine Learning
-- Data Analysis
-- Deep Learning
+- **Match Reasons**: For candidates scoring above 80%, key reasons for the match are displayed.
 
-Optional Skills:
-- Cloud Computing
-- Big Data
-- Computer Vision
+- **Website Status**:
+  - Active websites are included in the evaluation.
+  - Inactive or unreachable websites result in a score penalty and are marked as `(inactive)`.
 
-Certifications Preferred:
-- AWS Certified Solutions Architect
-- Certified Data Scientist
+### Result Summary
 
-Soft Skills:
-- Communication
-- Team Leadership
-- Problem Solving
-- Adaptability
+After processing all resumes, the script provides a summary including:
 
-Required Education Level:
-- Masters
+- Top Score
+- Average Score
+- Bottom Score
+- Number of Processed Resumes
+- Number of Errors Encountered (if any)
 
-Required Experience Years:
-- 5
-
-Emphasis:
-- Technical Skills Weight: 50
-- Soft Skills Weight: 20
-- Experience Weight: 20
-- Education Weight: 10
-```
-
-### 2. Place Resumes in the Source Directory
-
-Create a directory named `src` (if it doesn't exist) and place all PDF resumes you want to process inside this directory.
-
-### 3. Run the Script
-
-Execute the script using the following command:
-
-```bash
-python resume_matcher.py [path_to_job_description] [path_to_resumes]
-```
-
-- **`path_to_job_description`**: (Optional) Path to the job description file. Default is `job_description.txt`.
-- **`path_to_resumes`**: (Optional) Path to the directory containing resume PDFs. Default is `src`.
-
-**Example:**
-
-```bash
-python resume_matcher.py job_description.txt src
-```
-
-If you don't provide any arguments, the script will default to `job_description.txt` and `src`.
-
-### 4. View Results
-
-The script will process the resumes and display the results in the terminal, including:
-
-- Candidate name (from the resume filename)
-- Match score with an emoji and label
-- Key reasons for the match (if score > 80%)
-- Any detected personal website status
-
-Personalized email responses are saved in the `out` directory, named after each resume.
+This summary helps recruiters quickly gauge the overall quality of the candidate pool.
 
 ## Advanced Features
 
@@ -194,6 +89,7 @@ Personalized email responses are saved in the `out` directory, named after each 
   - Check if the website is active.
   - Fetch and include website content in the evaluation.
   - Penalize the score if the website is inactive.
+  - Re-run the matching process with combined resume and website content for a more comprehensive evaluation.
 
 ### Detailed Logging and Error Handling
 
@@ -204,6 +100,10 @@ Personalized email responses are saved in the `out` directory, named after each 
 
 - Generates professional, personalized email responses based on the match score.
 - Saves responses in the `out` directory for easy access.
+
+### Interactive Console Output
+
+The script provides an engaging user experience with a "resume matching dance" animation displayed in the console during processing. This fun feature uses ASCII art and emojis to show progress and keep users entertained while the script processes resumes.
 
 ## Customization
 
@@ -231,17 +131,6 @@ message = client.messages.create(
 ### Modify Scoring Criteria
 
 Adjust the scoring logic in the `match_resume_to_job` function's prompt as needed to better fit your specific requirements.
-
-## Output Interpretation
-
-- **Emojis and Labels**: Each candidate is assigned an emoji and label based on their score.
-  - Example: `🌟🚀 candidate.pdf : 98% - Cosmic Perfection`
-
-- **Match Reasons**: For candidates scoring above 80%, key reasons for the match are displayed.
-
-- **Website Status**:
-  - Active websites are included in the evaluation.
-  - Inactive or unreachable websites result in a score penalty and are marked as `(inactive)`.
 
 ## Troubleshooting
 
