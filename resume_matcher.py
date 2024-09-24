@@ -3,6 +3,7 @@ import sys
 import json
 import PyPDF2
 import anthropic
+import openai
 from glob import glob
 from multiprocessing import Pool, cpu_count
 from tqdm import tqdm
@@ -21,9 +22,97 @@ import base64
 logging.basicConfig(level=logging.CRITICAL, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # Initialize the Anthropic client globally
-default_client = anthropic.Anthropic(api_key=os.environ.get("CLAUDE_API_KEY"))
+default_anthropic_client = anthropic.Anthropic(api_key=os.environ.get("CLAUDE_API_KEY"))
 
-def rank_job_description(job_desc, client=default_client):
+# Initialize the OpenAI client globally
+default_openai_client = openai.OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+
+# Global variable to store the chosen API
+chosen_api = "anthropic"
+
+import os
+from termcolor import colored
+
+def choose_api():
+    global chosen_api
+    prompt = "Use OpenAI API instead of Anthropic? [y/N]: "
+    choice = input(colored(prompt, "cyan")).strip().lower()
+    
+    if choice in ["y", "yes"]:
+        chosen_api = "openai"
+    else:
+        chosen_api = "anthropic"
+    
+    print(colored(f"\nSelected API: {chosen_api.capitalize()}", "green", attrs=["bold"]))
+
+def talk_to_ai(prompt, max_tokens=1000, image_data=None, client=None):
+    global chosen_api
+    
+    if chosen_api == "anthropic":
+        return talk_to_anthropic(prompt, max_tokens, image_data, client)
+    else:
+        return talk_to_openai(prompt, max_tokens, image_data, client)
+
+def talk_to_anthropic(prompt, max_tokens=1000, image_data=None, client=None):
+    if client is None:
+        client = default_anthropic_client
+    
+    messages = [{"role": "user", "content": [{"type": "text", "text": prompt}]}]
+    
+    if image_data:
+        for img in image_data:
+            base64_image = base64.b64encode(img).decode('utf-8')
+            messages[0]["content"].append({
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": "image/jpeg",
+                    "data": base64_image
+                }
+            })
+    
+    try:
+        response = client.messages.create(
+            model="claude-3-5-sonnet-20240620",
+            max_tokens=max_tokens,
+            messages=messages
+        )
+        return response.content[0].text.strip()
+    except Exception as e:
+        logging.error(f"Error in Anthropic AI communication: {str(e)}")
+        return None
+
+def talk_to_openai(prompt, max_tokens=1000, image_data=None, client=None):
+    if client is None:
+        client = default_openai_client
+    
+    messages = [{"role": "user", "content": [{"type": "text", "text": prompt}]}]
+    
+    if image_data:
+        model = "gpt-4-vision-preview"
+        for img in image_data:
+            base64_image = base64.b64encode(img).decode('utf-8')
+            messages[0]["content"].append({
+                "type": "image_url",
+                "image_url": {
+                    "url": f"data:image/jpeg;base64,{base64_image}"
+                }
+            })
+    else:
+        model = "gpt-4-turbo-preview"
+    
+    try:
+        response = client.chat.completions.create(
+            model=model,
+            messages=messages,
+            max_tokens=max_tokens
+        )
+        return response.choices[0].message.content.strip()
+    except Exception as e:
+        logging.error(f"Error in OpenAI communication: {str(e)}")
+        return None
+
+def rank_job_description(job_desc, client=None):
     prompt = f"""
 As a hiring consultant, analyze the following job description and provide a ranking based on modern best practices. Also, suggest 3-5 tips for improvement.
 
@@ -140,32 +229,6 @@ Strictly JSON. No explanations. No ```json``` wrappers.
         logging.error(f"Error ranking job description: {str(e)}")
         return None
 
-def talk_to_ai(prompt, max_tokens=1000, image_data=None, client=default_client):
-    messages = [{"role": "user", "content": [{"type": "text", "text": prompt}]}]
-    
-    if image_data:
-        for img in image_data:
-            base64_image = base64.b64encode(img).decode('utf-8')
-            messages[0]["content"].append({
-                "type": "image",
-                "source": {
-                    "type": "base64",
-                    "media_type": "image/jpeg",
-                    "data": base64_image
-                }
-            })
-    
-    try:
-        response = client.messages.create(
-            model="claude-3-5-sonnet-20240620",
-            max_tokens=max_tokens,
-            messages=messages
-        )
-        return response.content[0].text.strip()
-    except Exception as e:
-        logging.error(f"Error in AI communication: {str(e)}")
-        return None
-
 def extract_text_and_image_from_pdf(file_path):
     import pytesseract
     from pdf2image import convert_from_path
@@ -211,7 +274,7 @@ def extract_text_and_image_from_pdf(file_path):
         logging.error(f"Error extracting text and image from PDF {file_path}: {str(e)}")
         return "", []
 
-def assess_resume_quality(resume_images, client=default_client):
+def assess_resume_quality(resume_images, client=None):
     prompt = """
 You are a Resume Clarity and Visual Appeal Scoring expert.
 
@@ -306,7 +369,7 @@ No explanations. No ```json``` wrappers.
         logging.error(f"Error assessing resume quality: {str(e)}")
         return 0
 
-def match_resume_to_job(resume_text, job_desc, file_path, resume_images, client=default_client):
+def match_resume_to_job(resume_text, job_desc, file_path, resume_images, client=None):
     prompt = f"""Your role is RESUME HR EXPERT. Your goal is to compare the following resume to the job description and provide a match score from 0 to 100.
 
 # Enhanced Scoring Matching System Configuration
@@ -752,7 +815,7 @@ Only output the suggestions, no intro, no explanations, no comments.
     except Exception as e:
         logging.error(f"Error during overall match analysis: {str(e)}")
 
-def improve_job_description(job_desc, ranking, client=default_client):
+def improve_job_description(job_desc, ranking, client=None):
     prompt = f"""
 As a hiring consultant, improve the following job description based on the ranking and improvement tips provided. Maintain the overall structure and key information while addressing the areas for improvement.
 
@@ -773,6 +836,7 @@ Please provide an improved version of the job description that addresses the imp
         return None
 
 def main():
+    choose_api()
     if len(sys.argv) == 1:
         job_desc_file = "job_description.txt"
         if not os.path.exists(job_desc_file):
