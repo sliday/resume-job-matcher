@@ -199,6 +199,12 @@ The following Python packages are required for this project:
 - requests: To make HTTP requests for fetching website content
 - beautifulsoup4: For parsing HTML content from personal websites
 
+To install these packages, you can use pip:
+
+```bash
+pip install PyPDF2 anthropic tqdm termcolor json5 requests beautifulsoup4
+```
+
 ## Star History
 
 <a href="https://star-history.com/#sliday/resume-job-matcher&Date">
@@ -208,8 +214,3 @@ The following Python packages are required for this project:
    <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=sliday/resume-job-matcher&type=Date" />
  </picture>
 </a>
-To install these packages, you can use pip:
-
-```bash
-pip install PyPDF2 anthropic tqdm termcolor json5 requests beautifulsoup4
-```
