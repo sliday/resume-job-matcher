@@ -162,12 +162,13 @@ Job Description (job_description.txt content):
 ===
 Provide numeric score as the response and 1-paragraph long professional email response I can send to the candidate. No need to explain the score. You can only speak JSON.
 
-Politely regect anyone below 90. Use personal details in reponse, it has to be personalized.
+Politely reject anyone below 90. Use personal details in reponse, it has to be personalized.
 
 Output format:
 {{
   "score": 85,
   "email_response": "Thank you for applying to Frontend Developer at Sky. Your skills impress us. We invite you to next stage. Expect contact for pair programming interview.",
+  "subject_response": "Subject line of the response email",
   "match_reasons": "highlight1 | highlight2 | highlight3"
   "website": "personal_website_link_or_empty_string"
 }}
@@ -197,8 +198,9 @@ Strictly JSON. No explanations. No \`\`\`json\`\`\` wrappers.
             raise ValueError(f"Invalid score type: {type(score)}. Expected int or float.")
         
         email_response = response.get('email_response', '')
+        subject_response = response.get('subject_response', '')  # Get the subject line
         match_reasons = response.get('match_reasons', '')
-        website = response.get('website', '')  # Get the website if available
+        website = response.get('website', '')
         
         # Only keep the website if it's not empty and not 'usesky.ai'
         if website and 'usesky.ai' not in website:
@@ -209,7 +211,7 @@ Strictly JSON. No explanations. No \`\`\`json\`\`\` wrappers.
         os.makedirs('out', exist_ok=True)
         file_name = f"out/{os.path.splitext(os.path.basename(file_path))[0]}_response.txt"
         with open(file_name, 'w') as f:
-            f.write(email_response)
+            f.write(f"Subject: {subject_response}\n\n{email_response}")
         
         return {'score': float(score), 'match_reasons': match_reasons, 'website': website}
     except json5.JSONDecodeError as e:
@@ -255,7 +257,7 @@ def get_score_details(score):
         {"min_score": 43, "max_score": 44, "label": 'Needs Polish', "color": 'yellow', "emoji": '💪'},
         {"min_score": 40, "max_score": 42, "label": 'Diamond in the Rough', "color": 'yellow', "emoji": '🐣'},
         {"min_score": 38, "max_score": 39, "label": 'Underdog Contender', "color": 'light_yellow', "emoji": '🐕'},
-        {"min_score": 35, "max_score": 37, "label": 'Needs Work', "color": 'light_yellow', "emoji": '🛠️'},
+        {"min_score": 35, "max_score": 37, "label": 'Needs Work', "color": 'light_yellow', "emoji": '🛠��'},
         {"min_score": 33, "max_score": 34, "label": 'Significant Gap', "color": 'light_yellow', "emoji": '🌉'},
         {"min_score": 30, "max_score": 32, "label": 'Mismatch Alert', "color": 'light_yellow', "emoji": '🚨'},
         {"min_score": 25, "max_score": 29, "label": 'Back to Drawing Board', "color": 'red', "emoji": '🎨'},
