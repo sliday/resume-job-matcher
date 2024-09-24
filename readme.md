@@ -169,3 +169,21 @@ We welcome contributions! Please follow these steps:
 ---
 
 Enjoy using the Resume Job Matcher script to streamline your recruitment process!
+
+## Python Packages
+
+The following Python packages are required for this project:
+
+- PyPDF2: For extracting text from PDF resumes
+- anthropic: To interact with the Anthropic Claude API for AI-powered analysis
+- tqdm: For displaying progress bars during processing
+- termcolor: To add colored output in the console
+- json5: For parsing JSON-like data with added flexibility
+- requests: To make HTTP requests for fetching website content
+- beautifulsoup4: For parsing HTML content from personal websites
+
+To install these packages, you can use pip:
+
+```bash
+pip install PyPDF2 anthropic tqdm termcolor json5 requests beautifulsoup4
+```
