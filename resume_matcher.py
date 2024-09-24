@@ -15,6 +15,7 @@ from bs4 import BeautifulSoup
 from PIL import Image
 import io
 import statistics
+import base64
 
 # Initialize logging with more detailed format
 logging.basicConfig(level=logging.CRITICAL, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -129,7 +130,7 @@ Strictly JSON. No explanations. No ```json``` wrappers.
 """
 
     try:
-        response_text = talk_to_ai(prompt, max_tokens=500, client=client)
+        response_text = talk_to_ai(prompt, max_tokens=200, client=client)
         if response_text:
             response = json5.loads(response_text)
             return response
@@ -140,10 +141,19 @@ Strictly JSON. No explanations. No ```json``` wrappers.
         return None
 
 def talk_to_ai(prompt, max_tokens=1000, image_data=None, client=default_client):
-    messages = [{"role": "user", "content": prompt if not image_data else [
-        {"type": "text", "text": prompt},
-        {"type": "image", "image_data": image_data}
-    ]}]
+    messages = [{"role": "user", "content": [{"type": "text", "text": prompt}]}]
+    
+    if image_data:
+        for img in image_data:
+            base64_image = base64.b64encode(img).decode('utf-8')
+            messages[0]["content"].append({
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": "image/jpeg",
+                    "data": base64_image
+                }
+            })
     
     try:
         response = client.messages.create(
@@ -157,154 +167,137 @@ def talk_to_ai(prompt, max_tokens=1000, image_data=None, client=default_client):
         return None
 
 def extract_text_and_image_from_pdf(file_path):
-    # Updated function to include OCR fallback using pdf2image and pytesseract
     import pytesseract
     from pdf2image import convert_from_path
-    import io
+    from PyPDF2 import PdfReader
 
     try:
         text = ""
-        resume_image = None
+        resume_images = []
 
-        # Attempt to extract text using PyPDF2
-        with open(file_path, 'rb') as file:
-            reader = PyPDF2.PdfReader(file)
-            if len(reader.pages) == 0:
-                logging.error(f"No pages found in PDF {file_path}")
-                return "", None
+        # Extract text from the PDF using PyPDF2
+        reader = PdfReader(file_path)
+        first_page_text = ""
+        if reader.pages:
+            first_page = reader.pages[0]
+            first_page_text = first_page.extract_text()
+            if first_page_text:
+                text += first_page_text
 
-            for page_num, page in enumerate(reader.pages):
-                page_text = page.extract_text()
-                if page_text and page_text.strip():
-                    text += page_text
-                else:
-                    # Fallback to OCR if text extraction failed for this page
-                    logging.info(f"Performing OCR on page {page_num+1} of {file_path}")
-                    images = convert_from_path(file_path, first_page=page_num+1, last_page=page_num+1)
-                    if images:
-                        ocr_text = pytesseract.image_to_string(images[0])
-                        text += ocr_text
-
-        # If no text was extracted at all, perform OCR on all pages
-        if not text.strip():
-            logging.info(f"No text extracted from {file_path}, performing OCR on all pages")
-            images = convert_from_path(file_path)
-            for img in images:
-                ocr_text = pytesseract.image_to_string(img)
-                text += ocr_text
-
-        # Extract the first page as an image (for resume visualization)
+        # Extract image from the first page
         images = convert_from_path(file_path, first_page=1, last_page=1)
         if images:
-            img_byte_arr = io.BytesIO()
-            images[0].save(img_byte_arr, format='PNG')
-            resume_image = img_byte_arr.getvalue()
+            img = images[0]
+            # Convert to grayscale and compress image
+            img_gray = img.convert('L')
+            img_buffer = io.BytesIO()
+            img_gray.save(img_buffer, format='JPEG', quality=51)
+            img_buffer.seek(0)
 
-        return text, resume_image
+            # Add image data to resume_images list
+            resume_images.append(img_buffer.getvalue())
+
+            # If text extraction is insufficient, perform OCR
+            if not first_page_text or len(first_page_text.strip()) < 500:
+                ocr_text = pytesseract.image_to_string(Image.open(img_buffer))
+                text += ocr_text
+
+        else:
+            logging.error(f"No images found in PDF {file_path}")
+
+        return text, resume_images
 
     except Exception as e:
         logging.error(f"Error extracting text and image from PDF {file_path}: {str(e)}")
-        return "", None
+        return "", []
 
-def assess_resume_quality(resume_image, client=default_client):
-    if not resume_image:
-        return 0  # Return 0 if no image is available
-
+def assess_resume_quality(resume_images, client=default_client):
     prompt = """
-    # Resume Clarity and Visual Appeal Scoring Criteria
+You are a Resume Clarity and Visual Appeal Scoring expert.
 
-    # Define additional criteria to assess the clarity and visual appeal of the candidate's resume.
+Let's define criteria to assess the clarity and visual appeal of a candidate's resume.
 
-    criteria:
-      - name: 'Formatting and Layout'
-        weight: 25
-        scoring_logic:
-          description: |
-            Assess the overall formatting and layout of the resume. Points are awarded for consistent formatting, proper alignment, and effective use of white space.
-          factors:
-            - Consistent font styles and sizes
-            - Proper alignment of text and sections
-            - Effective use of white space to enhance readability
-            - Appropriate margins and spacing
+criteria:
+  - name: 'Formatting and Layout'
+    weight: 10
+    description: |
+      Assess the overall formatting and layout of the resume. Points are awarded for consistent formatting, proper alignment, and effective use of white space.
+    factors:
+      - Consistent font styles and sizes
+      - Proper alignment of text and sections
+      - Effective use of white space to enhance readability
+      - Appropriate margins and spacing
 
-      - name: 'Section Organization and Headings'
-        weight: 20
-        scoring_logic:
-          description: |
-            Evaluate the organization of content into clear sections with appropriate headings. Points are awarded for logical flow and ease of navigation.
-          factors:
-            - Clear and descriptive section headings
-            - Logical sequence of sections (e.g., summary, experience, education)
-            - Use of subheadings where appropriate
-            - Ease of locating key information
+  - name: 'Section Organization and Headings'
+    weight: 15
+    description: |
+      Evaluate the organization of content into clear sections with appropriate headings. Points are awarded for logical flow and ease of navigation.
+    factors:
+      - Clear and descriptive section headings
+      - Logical sequence of sections (e.g., summary, experience, education)
+      - Use of subheadings where appropriate
+      - Ease of locating key information
 
-      - name: 'Clarity and Conciseness of Content'
-        weight: 20
-        scoring_logic:
-          description: |
-            Assess the clarity and conciseness of the information presented. Points are awarded for clear language, avoidance of jargon, and concise descriptions.
-          factors:
-            - Use of clear and straightforward language
-            - Concise bullet points
-            - Avoidance of unnecessary jargon or buzzwords
-            - Focus on relevant information
+  - name: 'Clarity and Conciseness of Content'
+    weight: 25
+    description: |
+      Assess the clarity and conciseness of the information presented. Points are awarded for clear language, avoidance of jargon, and concise descriptions.
+    factors:
+      - Use of clear and straightforward language
+      - Concise bullet points
+      - Avoidance of unnecessary jargon or buzzwords
+      - Focus on relevant information
 
-      - name: 'Visual Elements and Design'
-        weight: 15
-        scoring_logic:
-          description: |
-            Evaluate the visual appeal of the resume, including the use of visual elements such as icons, color accents, or charts, if appropriate for the industry.
-          factors:
-            - Appropriate use of color accents
-            - Inclusion of relevant visual elements (e.g., icons, charts)
-            - Consistency in design elements
-            - Professional appearance suitable for the industry
+  - name: 'Visual Elements and Design'
+    weight: 20
+    description: |
+      Evaluate the visual appeal of the resume, including the use of visual elements such as icons, color accents, or charts, if appropriate for the industry.
+    factors:
+      - Appropriate use of color accents
+      - Inclusion of relevant visual elements (e.g., icons, charts)
+      - Consistency in design elements
+      - Professional appearance suitable for the industry
 
-      - name: 'Grammar and Spelling'
-        weight: 15
-        scoring_logic:
-          description: |
-            Assess the resume for grammatical correctness and spelling accuracy. Points are deducted for errors.
-          factors:
-            - Correct grammar usage
-            - Accurate spelling throughout
-            - Proper punctuation
-            - Professional tone and language
+  - name: 'Grammar and Spelling'
+    weight: 20
+    description: |
+      Assess the resume for grammatical correctness and spelling accuracy. Points are deducted for errors.
+    factors:
+      - Correct grammar usage
+      - Accurate spelling throughout
+      - Proper punctuation
+      - Professional tone and language
 
-      - name: 'Length and Completeness'
-        weight: 5
-        scoring_logic:
-          description: |
-            Evaluate whether the resume is of appropriate length and includes all necessary sections without unnecessary filler.
-          factors:
-            - Resume length appropriate for experience level (typically 1-2 pages)
-            - Inclusion of all relevant sections
-            - Absence of irrelevant or redundant information
+  - name: 'Length and Completeness'
+    weight: 10
+    description: |
+      Evaluate whether the resume is of appropriate length and includes all necessary sections without unnecessary filler.
+    factors:
+      - Resume length appropriate for experience level (typically 1-2 pages)
+      - Inclusion of all relevant sections
+      - Absence of irrelevant or redundant information
 
-    # Additional Settings
+# Additional Settings
 
-    max_total_score: 100  # Scores from all criteria sum up to this maximum
-    notes: |
-      - The clarity and visual appeal scoring is separate from the job matching score.
-      - These criteria aim to assess how effectively the candidate presents their information.
-      - A well-formatted resume can enhance readability and make a strong first impression.
+max_total_score: 100  # Scores from all criteria sum up to this maximum
 
-    Based on the image of the resume provided, please assess its quality according to the criteria above. Provide a score out of 100 and a brief explanation for each criterion. Then, calculate the total weighted score.
+notes: |
+  - The clarity and visual appeal scoring is separate from the job matching score.
+  - These criteria aim to assess how effectively the candidate presents their information.
+  - A well-formatted resume can enhance readability and make a strong first impression.
 
-    Output your response in the following JSON format:
-    {
-      "formatting_and_layout": {"score": 0, "explanation": ""},
-      "section_organization": {"score": 0, "explanation": ""},
-      "clarity_and_conciseness": {"score": 0, "explanation": ""},
-      "visual_elements": {"score": 0, "explanation": ""},
-      "grammar_and_spelling": {"score": 0, "explanation": ""},
-      "length_and_completeness": {"score": 0, "explanation": ""},
-      "total_score": 0
-    }
+Based on the image(s) of the resume provided, please assess its quality according to the criteria above. For each criterion, provide a score (out of its maximum weight) and a brief explanation. Then, calculate the total weighted score (out of 100).
+
+Output your response in the following JSON format:
+{
+  "total_score": Float
+}
+
+No explanations. No ```json``` wrappers.
     """
 
     try:
-        response_text = talk_to_ai(prompt, max_tokens=1000, image_data=resume_image, client=client)
+        response_text = talk_to_ai(prompt, max_tokens=100, image_data=resume_images, client=client)
         if response_text:
             response = json5.loads(response_text)
             return response['total_score']
@@ -313,15 +306,9 @@ def assess_resume_quality(resume_image, client=default_client):
         logging.error(f"Error assessing resume quality: {str(e)}")
         return 0
 
-def match_resume_to_job(resume_text, job_desc, file_path, resume_image, client=default_client):
+def match_resume_to_job(resume_text, job_desc, file_path, resume_images, client=default_client):
     prompt = f"""Your role is RESUME HR EXPERT. Your goal is to compare the following resume to the job description and provide a match score from 0 to 100.
 
-Method overview:
-1. Read the resume and job description carefully.
-2. Compare the skills, experience, and qualifications listed in the resume to the requirements of the job description.
-3. Assign a score based on how well the resume matches the job description.
-
-Advanced method:
 # Enhanced Scoring Matching System Configuration
 
 # Step 1: Parse Job Description to Extract Key Requirements
@@ -351,133 +338,211 @@ job_description:
     - 'NLP'
     - 'Predictive Modeling'
   emphasis:
-    technical_skills_weight: 50  # Percentage weight for technical skills
+    technical_skills_weight: 40  # Percentage weight for technical skills
     soft_skills_weight: 20       # Percentage weight for soft skills
     experience_weight: 20        # Percentage weight for experience
     education_weight: 10         # Percentage weight for education
+    language_proficiency_weight: 5  # Weight adjustable based on job requirements
+    certifications_weight: 5        # Weight adjustable based on job requirements
 
 # Step 2: Define Scoring Criteria Based on Extracted Requirements
 criteria:
   - name: 'Language Proficiency'
-    weight: 10
+    weight: "job_description.emphasis.language_proficiency_weight"
     scoring_logic:
       description: |
-        Assign points based on the candidate's language proficiency, with additional points for multilingual abilities or proficiency in languages relevant to the job.
-      levels:
+        Assign points based on the candidate's proficiency in languages relevant to the job. Full points are awarded for meeting the required proficiency. Multilingual abilities are valued when relevant.
+      required_languages: ['English']  # Adjust based on job description
+      proficiency_levels:
         'Native': 100
         'Fluent': 90
         'Professional Working Proficiency': 80
         'Intermediate': 70
-        'Basic': 50
-      multilingual_bonus: 10  # Additional points for each additional relevant language
+        'Basic': 60
+      multilingual_bonus_per_language: 5  # Additional points per relevant language
 
   - name: 'Education Level'
     weight: "job_description.emphasis.education_weight"
     scoring_logic:
       description: |
-        Assign points based on the candidate's highest degree or equivalent experience. If the candidate's education level meets or exceeds the required level, full points are awarded. If it is one level below, 75% of points are awarded. If two levels below, 50% of points are awarded. Relevant certifications or significant relevant experience can compensate for lacking formal education.
+        Assign points based on the candidate's highest level of education or equivalent experience. Emphasize relevant knowledge and skills over formal education. Alternative education paths and significant relevant experience are equally valued.
       levels:
         'PhD': 100
         'Masters': 90
         'Bachelors': 80
         'Associate': 70
-        'High School': 60
+        'High School or Equivalent': 60
         'No Formal Education': 50
-      alternative_paths_bonus: 20  # Additional points for relevant certifications or significant experience
+      alternative_paths_bonus: 20  # Points for relevant certifications, bootcamps, or self-directed learning
       required_level: "job_description.required_education_level"
 
   - name: 'Years of Experience'
     weight: "job_description.emphasis.experience_weight"
     scoring_logic:
       description: |
-        Calculate points proportionally based on the required experience. Full points for meeting or exceeding required years. Additional points for highly relevant experience. Partial points for experience slightly below the required years.
+        Assign points based on the relevance and quality of experience. Full points are awarded for meeting required years with relevant experience. Additional points for significant achievements.
       required_years: "job_description.required_experience_years"
       max_points: 100
       experience_points_formula: |
-        If candidate_years >= required_years:
-          points = 100 + (candidate_years - required_years) * 2  # Bonus points for extra years, up to a cap
+        If candidate_relevant_years >= required_years:
+          points = 100
         Else:
-          points = (candidate_years / required_years) * 100
-      max_bonus_points: 20  # Cap for bonus points
+          points = (candidate_relevant_years / required_years) * 100
+      additional_relevance_bonus: 10  # Bonus for highly relevant experience
 
   - name: 'Technical Skills'
     weight: "job_description.emphasis.technical_skills_weight"
     scoring_logic:
       description: |
-        Assign points for each required and optional skill, weighted by the candidate's proficiency level in each skill. Required skills have higher weight than optional skills. Proficiency levels are considered.
+        Assign points for each required and optional skill, considering proficiency level. Emphasize required skills but value transferable skills and learning ability.
       proficiency_levels:
         'Expert': 100
-        'Advanced': 80
-        'Intermediate': 60
-        'Beginner': 40
-      required_skills_weight: 1.0  # Multiplier for required skills
-      optional_skills_weight: 0.5  # Multiplier for optional skills
+        'Advanced': 85
+        'Intermediate': 70
+        'Beginner': 50
+        'Familiar': 30
+      required_skills_weight: 1.0
+      optional_skills_weight: 0.7
+      transferable_skills_bonus: 10  # Bonus for transferable skills
       required_skills: "job_description.required_skills"
       optional_skills: "job_description.optional_skills"
-      keywords_points: 2          # Additional points per keyword matched
+      keywords_points: 2  # Additional points per matched keyword
       keywords: "job_description.keywords_to_match"
 
   - name: 'Certifications'
-    weight: 10  # Static weight unless specified in job description
+    weight: "job_description.emphasis.certifications_weight"
     scoring_logic:
       description: |
-        Assign points for each preferred certification the candidate possesses. Equivalent certifications or significant practical experience can also earn points.
-      certifications_points: 5  # Points per certification
+        Assign points for each relevant certification. Practical experience and self-learning demonstrating equivalent expertise are equally valued.
+      certifications_points: 5  # Points per relevant certification
       certifications_preferred: "job_description.certifications_preferred"
-      equivalent_certifications_bonus: 5  # Points for equivalent certifications
-      practical_experience_bonus: 5       # Points for practical experience demonstrating certification-level expertise
+      equivalent_experience_bonus: 5  # Points for practical equivalent experience
+      self_learning_projects_bonus: 5  # Points for self-directed projects
 
   - name: 'Soft Skills'
     weight: "job_description.emphasis.soft_skills_weight"
     scoring_logic:
       description: |
-        Assign points for each soft skill mentioned in the resume, considering the candidate's demonstrated proficiency or examples of these skills.
-      soft_skills_points: 5     # Base points per soft skill
-      proficiency_bonus: 5      # Additional points if proficiency is demonstrated through examples or achievements
+        Assign points for each soft skill demonstrated through examples or achievements. Emphasize importance in team dynamics and culture.
+      soft_skills_points: 5  # Base points per soft skill
+      proficiency_bonus: 5   # Additional points if demonstrated
       soft_skills: "job_description.soft_skills"
 
   - name: 'Relevance of Experience'
-    weight: 10  # Additional weight for relevant job titles or industries
+    weight: 10  # Weight for relevant roles or industries
     scoring_logic:
       description: |
-        Assign points if the candidate has worked in similar or related roles or industries. Consider transferable skills and experiences.
-      relevant_titles_points: 10  # Points if matching job titles are found
-      related_titles_points: 5    # Points for related job titles
-      relevant_titles: "job_description.keywords_to_match"
+        Assign points for experience in similar or related roles or industries. Value transferable skills and adaptability.
+      relevant_roles_points: 10  # Points for matching roles
+      related_roles_points: 5    # Points for related roles
+      relevant_industries: "job_description.keywords_to_match"
       consider_transferable_skills: true
 
   - name: 'Non-Traditional Experience'
     weight: 5
     scoring_logic:
       description: |
-        Assign points for relevant experience gained through non-traditional means, such as open-source contributions, personal projects, volunteer work, or self-directed learning.
+        Assign points for relevant non-traditional experience such as open-source contributions, personal projects, volunteer work, or self-directed learning.
       max_points: 100
+      scoring_method: |
+        Evaluate relevance and impact of experiences. Assign points proportionally.
 
 # Step 3: Additional Settings
-max_total_score: 100  # The scoring logic should normalize scores to this maximum
+max_total_score: 100  # Normalize scores to this maximum
 normalization_method: |
-  The total score from all criteria will be scaled to a maximum of 100. Each criterion's score will be calculated based on its weight, and the sum will be normalized accordingly.
+  Total scores are scaled to a maximum of 100. Each criterion's score is calculated based on its weight relative to total emphasis weights. Penalties are subtracted after scoring and normalization.
+
+diversity_and_inclusion_policy:
+  description: |
+    The scoring system promotes fairness and minimizes bias. It values diverse backgrounds and focuses on abilities, potential, and contributions over traditional metrics.
 career_breaks_policy:
   description: |
-    Candidates will not be penalized for career breaks. The scoring system will focus on the relevance and quality of experience, not just continuity.
+    Candidates are not penalized for career breaks or non-linear paths. The focus is on relevance and quality of experience, skills, and potential.
+
+# Penalizing Rules
+red_flags:
+  - name: 'Inconsistencies in Employment History'
+    description: |
+      Penalize for unexplained gaps or overlapping dates in employment history that are not accounted for.
+    penalty_points: 5  # Points to deduct from total score
+    evaluation_logic: |
+      If gaps longer than 6 months are present without explanation, apply penalty.
+
+  - name: 'Misrepresentation of Qualifications'
+    description: |
+      Penalize if there is evidence that the candidate has exaggerated or falsified qualifications, certifications, or experience.
+    penalty_points: 20
+    evaluation_logic: |
+      If discrepancies are found between stated qualifications and verifiable information, apply penalty.
+
+  - name: 'Frequent Job Changes'
+    description: |
+      Penalize for multiple job changes within short periods without clear reasons, indicating potential lack of commitment.
+    penalty_points: 5
+    evaluation_logic: |
+      If more than 3 job changes in the past 2 years without justification, apply penalty.
+
+  - name: 'Unprofessional Resume Presentation'
+    description: |
+      Penalize for numerous typos, grammatical errors, or poor formatting that reflect a lack of attention to detail.
+    penalty_points: 5
+    evaluation_logic: |
+      If significant errors are present affecting readability, apply penalty.
+
+  - name: 'Negative References to Past Employers'
+    description: |
+      Penalize if the candidate speaks negatively about past employers or colleagues, indicating potential interpersonal issues.
+    penalty_points: 5
+    evaluation_logic: |
+      If unprofessional comments are detected, apply penalty.
+
+  - name: 'Unprofessional Contact Information'
+    description: |
+      Penalize for unprofessional email addresses or inappropriate content in contact information.
+    penalty_points: 2
+    evaluation_logic: |
+      If contact information contains inappropriate language or nicknames, apply penalty.
+
+  - name: 'Lack of Required Certifications or Licenses'
+    description: |
+      Penalize if the candidate lacks mandatory certifications or licenses required for the job.
+    penalty_points: 10
+    evaluation_logic: |
+      If essential certifications are missing and not compensated by equivalent experience, apply penalty.
+
+  - name: 'Plagiarism'
+    description: |
+      Penalize if there is evidence that the resume content has been plagiarized from templates or other sources without personalization.
+    penalty_points: 10
+    evaluation_logic: |
+      If identical content is found elsewhere without customization, apply penalty.
+
+  - name: 'Failure to Meet Non-Negotiable Requirements'
+    description: |
+      Penalize if the candidate does not meet essential legal or regulatory requirements (e.g., work authorization).
+    penalty_points: 20
+    evaluation_logic: |
+      If non-negotiable requirements are not met, apply penalty.
+
 notes: |
-  - The scoring system dynamically adjusts criteria weights based on the job description.
-  - Emphasizes the most critical aspects of the job requirements.
-  - Encourages a more tailored and fair evaluation of candidates.
-  - Considers alternative education paths, non-traditional experience, and transferable skills.
-  - Does not penalize candidates for career breaks or non-linear career paths.
+  - Penalties are subtracted from the total normalized score.
+  - The total penalties should not reduce the score below zero.
+  - The scoring system ensures fairness by focusing on job-relevant red flags.
+  - All penalizations are applied uniformly to all candidates.
 
 # Step 4: Calculate the final score: 0 - 100
-The scoring logic should normalize the total score to a maximum of 100.
+The scoring logic should normalize the total score to a maximum of 100, then subtract any penalty points. The final score cannot be less than zero. Try to be precise.
 
 # Step 5: Check your results and make sure you are happy with them.
+
+MATERIALS:
 
 Resume:
 ===
 {resume_text}
 ===
 
-job_description.txt:
+Job Description (job_description.txt):
 ===
 {job_desc}
 ===
@@ -487,7 +552,7 @@ Politely reject anyone below 90. Use personal details in reponse, it has to be p
 
 Output format:
 {{
-  "score": 85,
+  "score": Float,
   "email_response": "Thank you for applying to Frontend Developer at Sky. Your skills impress us. We invite you to next stage. Expect contact for pair programming interview.",
   "subject_response": "Subject line of the response email",
   "match_reasons": "highlight1 | highlight2 | highlight3"
@@ -501,7 +566,7 @@ Strictly JSON. No explanations. No \`\`\`json\`\`\` wrappers.
 """
 
     try:
-        response_text = talk_to_ai(prompt, max_tokens=350, client=client)
+        response_text = talk_to_ai(prompt, max_tokens=350, image_data=resume_images, client=client)
         if response_text:
             response = json5.loads(response_text)
             score = response.get('score', 0)
@@ -513,22 +578,22 @@ Strictly JSON. No explanations. No \`\`\`json\`\`\` wrappers.
             match_reasons = response.get('match_reasons', '')
             website = response.get('website', '')
             
-            if website and 'usesky.ai' not in website:
-                website = website
-            else:
-                website = ''
-            
             os.makedirs('out', exist_ok=True)
             file_name = f"out/{os.path.splitext(os.path.basename(file_path))[0]}_response.txt"
             with open(file_name, 'w') as f:
                 f.write(f"Subject: {subject_response}\n\n{email_response}")
             
             # Assess resume quality
-            resume_quality_score = assess_resume_quality(resume_image)
+            resume_quality_score = assess_resume_quality(resume_images)
             
-            # Calculate final score
-            final_score = min(score + resume_quality_score, 100)  # Cap at 100
+            # IMPORTANT: Calculate final score
+            # Normalize and combine AI-generated score with resume quality score
+            normalized_combined_score = (score * 0.75 + resume_quality_score * 0.25)
+            # Ensure the final score is between 0 and 100
+            final_score = min(max(normalized_combined_score, 0), 100)
             
+            print(f"DEBUG: resume_quality_score = {resume_quality_score}")
+            print(f"DEBUG: score = {score}")
             return {'score': final_score, 'match_reasons': match_reasons, 'website': website}
         else:
             return {'score': 0.0, 'match_reasons': "Error: No response from AI", 'website': ''}
@@ -550,48 +615,48 @@ def get_score_details(score):
     score = float(score)  # Ensure score is a float
     
     score_ranges = [
-        {"min_score": 98,  "label": 'Cosmic Perfection',      "color": 'magenta',     "emoji": '🌟'},
-        {"min_score": 95,  "max_score": 97, "label": 'Unicorn Candidate',     "color": 'blue',        "emoji": '🦄'},
-        {"min_score": 93,  "max_score": 94, "label": 'Superstar Plus',        "color": 'cyan',        "emoji": '🌠'},
-        {"min_score": 90,  "max_score": 92, "label": 'Coding Wizard',         "color": 'green',       "emoji": '🧙'},
-        {"min_score": 87,  "max_score": 89, "label": 'Rockstar Coder',        "color": 'cyan',        "emoji": '🎸'},
-        {"min_score": 85,  "max_score": 86, "label": 'Coding Virtuoso',       "color": 'cyan',        "emoji": '🏆'},
-        {"min_score": 83,  "max_score": 84, "label": 'Tech Maestro',          "color": 'green',       "emoji": '🎭'},
-        {"min_score": 80,  "max_score": 82, "label": 'Awesome Fit',           "color": 'green',       "emoji": '🚀'},
-        {"min_score": 78,  "max_score": 79, "label": 'Stellar Match',         "color": 'green',       "emoji": '💫'},
-        {"min_score": 75,  "max_score": 77, "label": 'Great Prospect',        "color": 'green',       "emoji": '🌈'},
-        {"min_score": 73,  "max_score": 74, "label": 'Very Promising',        "color": 'light_green', "emoji": '🍀'},
-        {"min_score": 70,  "max_score": 72, "label": 'Solid Contender',       "color": 'light_green', "emoji": '🌴'},
-        {"min_score": 68,  "max_score": 69, "label": 'Strong Potential',      "color": 'yellow',      "emoji": '🌱'},
-        {"min_score": 65,  "max_score": 67, "label": 'Good Fit',              "color": 'yellow',      "emoji": '👍'},
-        {"min_score": 63,  "max_score": 64, "label": 'Promising Talent',      "color": 'yellow',      "emoji": '🌻'},
-        {"min_score": 60,  "max_score": 62, "label": 'Worthy Consideration',  "color": 'yellow',      "emoji": '🤔'},
-        {"min_score": 58,  "max_score": 59, "label": 'Potential Diamond',     "color": 'yellow',      "emoji": '💎'},
-        {"min_score": 55,  "max_score": 57, "label": 'Decent Prospect',       "color": 'yellow',      "emoji": '🍋'},
-        {"min_score": 53,  "max_score": 54, "label": 'Worth a Look',          "color": 'yellow',      "emoji": '🔍'},
-        {"min_score": 50,  "max_score": 52, "label": 'Average Joe/Jane',      "color": 'yellow',      "emoji": '🌼'},
-        {"min_score": 48,  "max_score": 49, "label": 'Middling Match',        "color": 'yellow',      "emoji": '🍯'},
-        {"min_score": 45,  "max_score": 47, "label": 'Fair Possibility',      "color": 'yellow',      "emoji": '🌾'},
-        {"min_score": 43,  "max_score": 44, "label": 'Needs Polish',          "color": 'yellow',      "emoji": '💪'},
-        {"min_score": 40,  "max_score": 42, "label": 'Diamond in the Rough',  "color": 'yellow',      "emoji": '🐣'},
-        {"min_score": 38,  "max_score": 39, "label": 'Underdog Contender',    "color": 'light_yellow',"emoji": '🐕'},
-        {"min_score": 35,  "max_score": 37, "label": 'Needs Work',            "color": 'light_yellow',"emoji": '🛠'},
-        {"min_score": 33,  "max_score": 34, "label": 'Significant Gap',       "color": 'light_yellow',"emoji": '🌉'},
-        {"min_score": 30,  "max_score": 32, "label": 'Mismatch Alert',        "color": 'light_yellow',"emoji": '🚨'},
-        {"min_score": 25,  "max_score": 29, "label": 'Back to Drawing Board', "color": 'red',         "emoji": '🎨'},
-        {"min_score": 20,  "max_score": 24, "label": 'Way Off Track',         "color": 'red',         "emoji": '🚂'},
-        {"min_score": 15,  "max_score": 19, "label": 'Resume Misfire',        "color": 'red',         "emoji": '🎯'},
-        {"min_score": 10,  "max_score": 14, "label": 'Cosmic Mismatch',       "color": 'red',         "emoji": '☄'},
-        {"min_score": 5,   "max_score": 9,  "label": 'Did You Mean to Apply?',"color": 'red',         "emoji": '🤷'},
-        {"min_score": 0,   "max_score": 4,  "label": 'Oops! Wrong Universe',  "color": 'red',         "emoji": '🌀'},
+        {"min_score": 98,  "max_score": 101, "label": 'Cosmic Perfection',      "color": 'magenta',     "emoji": '🌟'},
+        {"min_score": 95,  "max_score": 98,  "label": 'Unicorn Candidate',     "color": 'blue',        "emoji": '🦄'},
+        {"min_score": 93,  "max_score": 95,  "label": 'Superstar Plus',        "color": 'cyan',        "emoji": '🌠'},
+        {"min_score": 90,  "max_score": 93,  "label": 'Coding Wizard',         "color": 'green',       "emoji": '🧙'},
+        {"min_score": 87,  "max_score": 90,  "label": 'Rockstar Coder',        "color": 'cyan',        "emoji": '🎸'},
+        {"min_score": 85,  "max_score": 87,  "label": 'Coding Virtuoso',       "color": 'cyan',        "emoji": '🏆'},
+        {"min_score": 83,  "max_score": 85,  "label": 'Tech Maestro',          "color": 'green',       "emoji": '🎭'},
+        {"min_score": 80,  "max_score": 83,  "label": 'Awesome Fit',           "color": 'green',       "emoji": '🚀'},
+        {"min_score": 78,  "max_score": 80,  "label": 'Stellar Match',         "color": 'green',       "emoji": '💫'},
+        {"min_score": 75,  "max_score": 78,  "label": 'Great Prospect',        "color": 'green',       "emoji": '🌈'},
+        {"min_score": 73,  "max_score": 75,  "label": 'Very Promising',        "color": 'light_green', "emoji": '🍀'},
+        {"min_score": 70,  "max_score": 73,  "label": 'Solid Contender',       "color": 'light_green', "emoji": '🌴'},
+        {"min_score": 68,  "max_score": 70,  "label": 'Strong Potential',      "color": 'yellow',      "emoji": '🌱'},
+        {"min_score": 65,  "max_score": 68,  "label": 'Good Fit',              "color": 'yellow',      "emoji": '👍'},
+        {"min_score": 63,  "max_score": 65,  "label": 'Promising Talent',      "color": 'yellow',      "emoji": '🌻'},
+        {"min_score": 60,  "max_score": 63,  "label": 'Worthy Consideration',  "color": 'yellow',      "emoji": '🤔'},
+        {"min_score": 58,  "max_score": 60,  "label": 'Potential Diamond',     "color": 'yellow',      "emoji": '💎'},
+        {"min_score": 55,  "max_score": 58,  "label": 'Decent Prospect',       "color": 'yellow',      "emoji": '🍋'},
+        {"min_score": 53,  "max_score": 55,  "label": 'Worth a Look',          "color": 'yellow',      "emoji": '🔍'},
+        {"min_score": 50,  "max_score": 53,  "label": 'Average Candidate',     "color": 'yellow',      "emoji": '🌼'},
+        {"min_score": 48,  "max_score": 50,  "label": 'Middling Match',        "color": 'yellow',      "emoji": '🍯'},
+        {"min_score": 45,  "max_score": 48,  "label": 'Fair Possibility',      "color": 'yellow',      "emoji": '🌾'},
+        {"min_score": 43,  "max_score": 45,  "label": 'Needs Polish',          "color": 'yellow',      "emoji": '💪'},
+        {"min_score": 40,  "max_score": 43,  "label": 'Diamond in the Rough',  "color": 'yellow',      "emoji": '🐣'},
+        {"min_score": 38,  "max_score": 40,  "label": 'Underdog Contender',    "color": 'light_yellow',"emoji": '🐕'},
+        {"min_score": 35,  "max_score": 38,  "label": 'Needs Work',            "color": 'light_yellow',"emoji": '🛠'},
+        {"min_score": 33,  "max_score": 35,  "label": 'Significant Gap',       "color": 'light_yellow',"emoji": '🌉'},
+        {"min_score": 30,  "max_score": 33,  "label": 'Mismatch Alert',        "color": 'light_yellow',"emoji": '🚨'},
+        {"min_score": 25,  "max_score": 30,  "label": 'Back to Drawing Board', "color": 'red',         "emoji": '🎨'},
+        {"min_score": 20,  "max_score": 25,  "label": 'Way Off Track',         "color": 'red',         "emoji": '🚂'},
+        {"min_score": 15,  "max_score": 20,  "label": 'Resume Misfire',        "color": 'red',         "emoji": '🎯'},
+        {"min_score": 10,  "max_score": 15,  "label": 'Cosmic Mismatch',       "color": 'red',         "emoji": '☄'},
+        {"min_score": 5,   "max_score": 10,  "label": 'Did You Mean to Apply?', "color": 'red',        "emoji": '🤷'},
+        {"min_score": 0,   "max_score": 5,   "label": 'Oops! Wrong Universe',  "color": 'red',         "emoji": '🌀'},
     ]
-
+    
     for range_info in score_ranges:
-        if score >= range_info["min_score"] and (
-            "max_score" not in range_info or score <= range_info["max_score"]
-        ):
+        min_score = range_info["min_score"]
+        max_score = range_info["max_score"]
+        if min_score <= score < max_score:
             return range_info["emoji"], range_info["color"], range_info["label"]
-
+    
     return "💀", "red", "Unable to score"  # Fallback for any unexpected scores
 
 def check_website(url):
@@ -606,10 +671,10 @@ def check_website(url):
 def worker(args):
     file, job_desc = args
     try:
-        resume_text, resume_image = extract_text_and_image_from_pdf(file)
+        resume_text, resume_images = extract_text_and_image_from_pdf(file)
         if not resume_text:
             return (os.path.basename(file), 0, "🔴", "red", "Error: Failed to extract text from PDF", "", "")
-        result = match_resume_to_job(resume_text, job_desc, file, resume_image)
+        result = match_resume_to_job(resume_text, job_desc, file, resume_images)
         score = result['score']
         match_reasons = result['match_reasons']
         website = result.get('website', '')
@@ -633,7 +698,7 @@ def worker(args):
                     combined_text = f"{resume_text}\n\nWebsite Content:\n{website_text}"
                     
                     # Re-run match_resume_to_job with combined_text
-                    result = match_resume_to_job(combined_text, job_desc, file, resume_image)
+                    result = match_resume_to_job(combined_text, job_desc, file, resume_images)
                     score = result['score']
                     match_reasons = result['match_reasons']
                 except Exception as e:
@@ -649,14 +714,6 @@ def process_resumes(job_desc, pdf_files):
     with Pool(processes=cpu_count()) as pool:
         results = list(tqdm(pool.imap(worker, [(file, job_desc) for file in pdf_files]), total=len(pdf_files), desc=f"Processing {len(pdf_files)} resumes"))
     return results
-
-def generate_ascii_art(text):
-    ascii_art = f"""
-    ╔{'═' * (len(text) + 2)}╗
-    ║ {text} ║
-    ╚{'═' * (len(text) + 2)}╝
-    """
-    return ascii_art
 
 def analyze_overall_matches(job_desc, results):
     # Prepare data for analysis
@@ -832,8 +889,10 @@ def main():
         print(colored(f"Average: {avg_score:.2f}%", 'cyan'))
         print(colored(f"Median: {median_score:.2f}%", 'green'))
         print(colored(f"Standard Deviation: {std_dev_score:.2f}", 'magenta'))
-        print(colored(f"Resumes ≥ 90%: {resumes_above_90}", 'blue'))
-        print(colored(f"Resumes ≥ 80%: {resumes_above_80}", 'cyan'))
+        if resumes_above_90 > 0:
+            print(colored(f"Resumes ≥ 90%: {resumes_above_90}", 'blue'))
+        if resumes_above_80 > 0:
+            print(colored(f"Resumes ≥ 80%: {resumes_above_80}", 'cyan'))
         print(colored(f"Lowest Score: {bottom_score:.2f}%", 'magenta'))
         print(colored(f"Processed: {processed_count}", 'green'))
 
