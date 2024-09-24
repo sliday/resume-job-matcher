@@ -123,10 +123,27 @@ To change the AI model used, update the `model` parameter in the `match_resume_t
 
 ```python
 message = client.messages.create(
-    model="claude-3-sonnet-20240229",
+    model="claude-3-5-sonnet-20240620",
     ...
 )
 ```
+
+## Score Calculation
+
+The final score for each resume is calculated using a combination of two factors:
+
+1. **AI-Generated Match Score (75% weight)**: This score is based on how well the resume matches the job description, considering factors such as skills, experience, education, and other relevant criteria.
+
+2. **Resume Quality Score (25% weight)**: This score assesses the visual appeal and clarity of the resume itself, including formatting, layout, and overall presentation.
+
+The calculation process is as follows:
+
+1. The AI-generated match score and the resume quality score are both normalized to a 0-100 scale.
+2. A weighted average is calculated: 
+   `(AI_Score * 0.75 + Quality_Score * 0.25)`
+3. The result is clamped to ensure it falls within the 0-100 range.
+
+This combined approach ensures that both the content relevance and the presentation quality of the resume are taken into account in the final score.
 
 ### Modify Scoring Criteria
 
