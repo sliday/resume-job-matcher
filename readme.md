@@ -19,6 +19,10 @@ This tool is designed to streamline the recruitment process by efficiently proce
 - **Detailed Logging and Error Handling**: Provides robust logging and gracefully handles exceptions.
 - **Interactive Console Output**: Displays a fun "resume matching dance" animation during processing.
 - **Comprehensive Result Summary**: Provides a detailed summary of top, average, and bottom scores.
+- **Dual AI Provider Support**: Offers the choice between Anthropic's Claude API and OpenAI's GPT API for AI-powered analysis.
+- **Fast AI Communication**: Utilizes a `talk_fast` function for efficient communication with AI models, supporting both text and image inputs.
+- **Structured AI Responses**: Implements a Pydantic model (`AIResponse`) for structured and validated AI responses.
+- **Dynamic API Selection**: Allows users to choose between Anthropic and OpenAI APIs at runtime.
 
 ![CleanShot 2024-09-23 at 23 02 45@2x](https://github.com/user-attachments/assets/bc789343-839e-44bc-b3fb-df3cedf869a8)
 
@@ -67,21 +71,26 @@ This summary helps recruiters quickly gauge the overall quality of the candidate
 
 ## Advanced Features
 
-### Multiprocessing
+### AI Provider Flexibility
 
-- Utilizes all available CPU cores to process resumes in parallel, improving efficiency.
+- **API Choice**: Users can select between Anthropic's Claude API and OpenAI's GPT API at the start of the script.
+- **Model Customization**: Easily switch between different AI models by modifying the `model` parameter in the `talk_fast` function.
 
-### Comprehensive Scoring System
+### Efficient AI Communication
 
-- **Dynamic Weights**: Adjusts scoring weights based on emphasis provided in the job description.
-- **Criteria Evaluated**:
-  - Language proficiency
-  - Education level
-  - Years of experience
-  - Technical skills (required and optional)
-  - Certifications
-  - Soft skills
-  - Relevance of experience
+- **talk_fast Function**: A versatile function that handles communication with both Anthropic and OpenAI APIs.
+- **Support for Text and Image Inputs**: Can process both textual and image-based inputs for comprehensive resume analysis.
+- **Token Management**: Automatically manages token limits to ensure optimal use of API context windows.
+
+### Structured AI Responses
+
+- **Pydantic Models**: Utilizes Pydantic for defining structured response types (Score, Reasons, URL, Email).
+- **Response Validation**: Ensures AI responses conform to expected structures, improving reliability and error handling.
+
+### Dynamic Scoring System
+
+- **Customizable Criteria**: The scoring system uses dynamically weighted criteria that can be adjusted based on job requirements.
+- **Comprehensive Evaluation**: Considers factors such as language proficiency, education, experience, technical skills, certifications, and soft skills.
 
 ### Website Content Integration
 
@@ -124,6 +133,33 @@ To change the AI model used, update the `model` parameter in the `match_resume_t
 ```python
 message = client.messages.create(
     model="claude-3-5-sonnet-20240620",
+    ...
+)
+```
+
+### Modify AI Provider
+
+To switch between Anthropic and OpenAI APIs, modify the `choose_api` function call at the beginning of the script:
+
+```python
+def choose_api():
+    global chosen_api
+    prompt = "Use OpenAI API instead of Anthropic? [y/N]: "
+    choice = input(colored(prompt, "cyan")).strip().lower()
+    
+    if choice in ["y", "yes"]:
+        chosen_api = "openai"
+    else:
+        chosen_api = "anthropic"
+```
+
+### Adjust AI Model
+
+To change the AI model used, update the `model` parameter in the `talk_fast` function:
+
+```python
+response = client.chat.completions.create(
+    model="gpt-4o",  # Change this to the desired model
     ...
 )
 ```
@@ -198,11 +234,13 @@ The following Python packages are required for this project:
 - json5: For parsing JSON-like data with added flexibility
 - requests: To make HTTP requests for fetching website content
 - beautifulsoup4: For parsing HTML content from personal websites
+- openai: To interact with the OpenAI API for AI-powered analysis
+- pydantic: For data validation and settings management using Python type annotations
 
 To install these packages, you can use pip:
 
 ```bash
-pip install PyPDF2 anthropic tqdm termcolor json5 requests beautifulsoup4
+pip install PyPDF2 anthropic openai tqdm termcolor json5 requests beautifulsoup4 pydantic
 ```
 
 ## Star History
