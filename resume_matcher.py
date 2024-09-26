@@ -1,9 +1,11 @@
-import os
 import sys
 import json
+import json5 
 import PyPDF2
 import anthropic
 import openai
+from openai import OpenAI
+from openai import OpenAIError
 from glob import glob
 from multiprocessing import Pool, cpu_count
 from tqdm import tqdm
@@ -17,6 +19,7 @@ from PIL import Image
 import io
 import statistics
 import base64
+import os
 
 # Initialize logging with more detailed format
 logging.basicConfig(level=logging.CRITICAL, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -48,10 +51,16 @@ def choose_api():
 def talk_to_ai(prompt, max_tokens=1000, image_data=None, client=None):
     global chosen_api
     
-    if chosen_api == "anthropic":
-        return talk_to_anthropic(prompt, max_tokens, image_data, client)
-    else:
-        return talk_to_openai(prompt, max_tokens, image_data, client)
+    try:
+        if chosen_api == "anthropic":
+            response = talk_to_anthropic(prompt, max_tokens, image_data, client)
+        else:
+            response = talk_to_openai(prompt, max_tokens, image_data, client)
+        
+        return response.strip() if response else ""
+    except Exception as e:
+        logging.error(f"Error in talk_to_ai: {str(e)}")
+        return ""
 
 def talk_to_anthropic(prompt, max_tokens=1000, image_data=None, client=None):
     if client is None:
@@ -80,7 +89,7 @@ def talk_to_anthropic(prompt, max_tokens=1000, image_data=None, client=None):
         return response.content[0].text.strip()
     except Exception as e:
         logging.error(f"Error in Anthropic AI communication: {str(e)}")
-        return None
+        return ""
 
 def talk_to_openai(prompt, max_tokens=1000, image_data=None, client=None):
     if client is None:
@@ -89,7 +98,7 @@ def talk_to_openai(prompt, max_tokens=1000, image_data=None, client=None):
     messages = [{"role": "user", "content": [{"type": "text", "text": prompt}]}]
     
     if image_data:
-        model = "gpt-4-vision-preview"
+        model = "gpt-4o"
         for img in image_data:
             base64_image = base64.b64encode(img).decode('utf-8')
             messages[0]["content"].append({
@@ -99,7 +108,7 @@ def talk_to_openai(prompt, max_tokens=1000, image_data=None, client=None):
                 }
             })
     else:
-        model = "gpt-4-turbo-preview"
+        model = "gpt-4o"
     
     try:
         response = client.chat.completions.create(
@@ -110,124 +119,314 @@ def talk_to_openai(prompt, max_tokens=1000, image_data=None, client=None):
         return response.choices[0].message.content.strip()
     except Exception as e:
         logging.error(f"Error in OpenAI communication: {str(e)}")
+        return ""
+
+from pydantic import BaseModel, Field
+from typing import List, Union
+from enum import Enum
+
+class ResponseType(str, Enum):
+    score = "score"
+    reasons = "reasons"
+    url = "url"
+    email = "email"
+
+class Score(BaseModel):
+    value: int = Field(..., ge=0, le=100)
+
+class Reasons(BaseModel):
+    items: List[str] = Field(..., max_items=5)
+
+class URL(BaseModel):
+    value: str
+
+class Email(BaseModel):
+    subject: str
+    body: str
+
+class AIResponse(BaseModel):
+    response_type: ResponseType
+    content: Union[Score, Reasons, URL, Email]
+
+
+def talk_fast(messages, model="gpt-4o-mini", max_tokens=1000, client=None, image_data=None):
+    import tiktoken  # Ensure this package is installed: pip install tiktoken
+
+    if client is None:
+        client = default_openai_client
+    
+    content = []
+    if isinstance(messages, str):
+        content.append({"type": "text", "text": messages})
+    elif isinstance(messages, list):
+        content.extend(messages)
+    else:
+        raise ValueError("Messages should be a string or a list of message objects")
+
+    if image_data:
+        if isinstance(image_data, list):
+            for img in image_data:
+                base64_image = base64.b64encode(img).decode('utf-8')
+                content.append({
+                    "type": "image",
+                    "image_url": {
+                        "url": f"data:image/jpeg;base64,{base64_image}"
+                    }
+                })
+        else:
+            base64_image = base64.b64encode(image_data).decode('utf-8')
+            content.append({
+                "type": "image",
+                "image_url": {
+                    "url": f"data:image/jpeg;base64,{base64_image}"
+                }
+            })
+
+    # Estimate token count
+    encoding = tiktoken.encoding_for_model(model)
+    content_text = ''
+    for item in content:
+        if item['type'] == 'text':
+            content_text += item['text']
+    input_tokens = len(encoding.encode(content_text))
+
+    # Define the model's context window
+    model_context_windows = {
+        "gpt-4": 8192,
+        "gpt-4o-mini": 4096  # Adjust according to the actual context window
+    }
+    context_window = model_context_windows.get(model, 4096)
+
+    # Set default max_tokens if not provided
+    if max_tokens is None:
+        max_tokens = 1000  # Default value
+
+    # Ensure total tokens do not exceed context window
+    if input_tokens + max_tokens > context_window:
+        max_tokens = context_window - input_tokens - 1  # Reserve 1 token for safety
+
+        # Ensure max_tokens is positive
+        if max_tokens <= 0:
+            logging.error("Input text is too long for the model to process.")
+            return None  # Or handle as needed
+
+    try:
+        logging.debug(f"Sending request to OpenAI API with model: {model}")
+        response = client.chat.completions.create(
+            model=model,
+            messages=[{"role": "user", "content": content}],
+            max_tokens=max_tokens,
+            response_format={"type": "json_object"},
+            tools=[{
+                "type": "function",
+                "function": {
+                    "name": "AIResponse",
+                    "parameters": AIResponse.model_json_schema()
+                }
+            }]
+        )
+        logging.debug(f"Received response from OpenAI API: {response}")
+        
+        if response.choices and response.choices[0].message:
+            if response.choices[0].message.content:
+                result = response.choices[0].message.content.strip()
+            elif response.choices[0].message.tool_calls:
+                # Handle tool calls (function calls)
+                tool_call = response.choices[0].message.tool_calls[0]
+                result = tool_call.function.arguments
+            else:
+                raise ValueError("Unexpected response format")
+            
+            logging.debug(f"Extracted content from OpenAI response: {result}")
+            try:
+                parsed_result = json5.loads(result)
+                return parsed_result
+            except json.JSONDecodeError as e:
+                logging.error(f"Error parsing JSON response: {str(e)}")
+                return None
+        else:
+            logging.error("Empty or invalid response from OpenAI API")
+            logging.debug(f"Full response object: {response}")
+            return None
+    except Exception as e:
+        error_message = str(e)
+        if hasattr(e, 'response'):
+            error_message += f"\nResponse content: {e.response.text}"
+        logging.error(f"Error in talk_fast: {error_message}")
         return None
 
 def rank_job_description(job_desc, client=None):
-    prompt = f"""
-As a hiring consultant, analyze the following job description and provide a ranking based on modern best practices. Also, suggest 3-5 tips for improvement.
+    criteria = [
+        {
+            'name': 'Clarity and Specificity',
+            'key': 'clarity_specificity',
+            'weight': 20,
+            'description': 'The job description should clearly outline the responsibilities, required qualifications, and expectations without ambiguity.',
+            'factors': [
+                'Use of clear and concise language',
+                'Detailed list of job responsibilities',
+                'Specific qualifications and experience required',
+                'Avoidance of vague terms like "sometimes," "maybe," or "as needed"'
+            ]
+        },
+        {
+            'name': 'Inclusivity and Bias-Free Language',
+            'key': 'inclusivity',
+            'weight': 20,
+            'description': 'The job description should use inclusive language that encourages applications from a diverse range of candidates.',
+            'factors': [
+                'Gender-neutral pronouns and job titles',
+                'Avoidance of ageist, ableist, or culturally biased language',
+                'Inclusion of diversity and inclusion statements'
+            ]
+        },
+        {
+            'name': 'Company Culture and Values Description',
+            'key': 'company_culture',
+            'weight': 15,
+            'description': 'The job description should provide insight into the company\'s culture, mission, and values to help candidates assess cultural fit.',
+            'factors': [
+                'Clear statement of company mission and values',
+                'Description of team dynamics and work environment',
+                'Emphasis on aspects like innovation, collaboration, or employee development'
+            ]
+        },
+        {
+            'name': 'Realistic and Prioritized Qualifications',
+            'key': 'realistic_qualifications',
+            'weight': 15,
+            'description': 'The qualifications section should distinguish between essential and preferred qualifications to avoid deterring qualified candidates.',
+            'factors': [
+                'Separate lists for mandatory and preferred qualifications',
+                'Realistic experience and education requirements',
+                'Justification for any stringent requirements'
+            ]
+        },
+        {
+            'name': 'Opportunities for Growth and Development',
+            'key': 'growth_opportunities',
+            'weight': 10,
+            'description': 'The job description should mention any opportunities for career advancement, professional development, or training.',
+            'factors': [
+                'Information on potential career paths within the company',
+                'Availability of training programs or educational assistance',
+                'Mentorship or leadership development opportunities'
+            ]
+        },
+        {
+            'name': 'Compensation and Benefits Transparency',
+            'key': 'compensation_transparency',
+            'weight': 10,
+            'description': 'Providing information on compensation ranges and benefits can attract candidates aligned with what the company offers.',
+            'factors': [
+                'Inclusion of salary range or compensation package details',
+                'Highlighting key benefits (e.g., health insurance, retirement plans)',
+                'Mention of unique perks (e.g., remote work options, flexible hours)'
+            ]
+        },
+        {
+            'name': 'Search Engine Optimization (SEO)',
+            'key': 'seo',
+            'weight': 5,
+            'description': 'The job description should be optimized with relevant keywords to improve visibility in job searches.',
+            'factors': [
+                'Use of industry-standard job titles',
+                'Inclusion of relevant keywords and phrases'
+            ]
+        },
+        {
+            'name': 'Legal Compliance',
+            'key': 'legal_compliance',
+            'weight': 5,
+            'description': 'Ensure the job description complies with employment laws and regulations.',
+            'factors': [
+                'Compliance with labor laws',
+                'Non-discriminatory language',
+                'Properly stated equal opportunity statements'
+            ]
+        }
+    ]
 
-Job Description:
-{job_desc}
+    scores = {}
+    total_weight = sum(criterion['weight'] for criterion in criteria)
+    total_score = 0
 
-Criteria for Effective Job Descriptions:
-1. Clarity and Specificity (20%)
-2. Inclusivity and Bias-Free Language (20%)
-3. Company Culture and Values Description (15%)
-4. Realistic and Prioritized Qualifications (15%)
-5. Opportunities for Growth and Development (10%)
-6. Compensation and Benefits Transparency (10%)
-7. Search Engine Optimization (SEO) (5%)
-8. Legal Compliance (5%)
+    for criterion in criteria:
+        prompt = f"""
+        Evaluate the job description based on the criterion: "{criterion['name']}".
 
-Advanced scoring criteria:
-  - name: 'Clarity and Specificity'
-    weight: 20
-    description: |
-      The job description should clearly outline the responsibilities, required qualifications, and expectations without ambiguity.
-    factors:
-      - Use of clear and concise language
-      - Detailed list of job responsibilities
-      - Specific qualifications and experience required
-      - Avoidance of vague terms like "sometimes," "maybe," or "as needed"
+        Criterion Description:
+        {criterion['description']}
 
-  - name: 'Inclusivity and Bias-Free Language'
-    weight: 20
-    description: |
-      The job description should use inclusive language that encourages applications from a diverse range of candidates.
-    factors:
-      - Gender-neutral pronouns and job titles
-      - Avoidance of ageist, ableist, or culturally biased language
-      - Inclusion of diversity and inclusion statements
+        Factors to consider:
+        {', '.join(criterion['factors'])}
 
-  - name: 'Company Culture and Values Description'
-    weight: 15
-    description: |
-      The job description should provide insight into the company's culture, mission, and values to help candidates assess cultural fit.
-    factors:
-      - Clear statement of company mission and values
-      - Description of team dynamics and work environment
-      - Emphasis on aspects like innovation, collaboration, or employee development
+        Job Description:
+        {job_desc}
 
-  - name: 'Realistic and Prioritized Qualifications'
-    weight: 15
-    description: |
-      The qualifications section should distinguish between essential and preferred qualifications to avoid deterring qualified candidates.
-    factors:
-      - Separate lists for mandatory and preferred qualifications
-      - Realistic experience and education requirements
-      - Justification for any stringent requirements
+        Provide your evaluation as an integer score from 0 to 100, where 0 is the lowest and 100 is the highest.
+        Only return the integer score, nothing else.
+        """
 
-  - name: 'Opportunities for Growth and Development'
-    weight: 10
-    description: |
-      The job description should mention any opportunities for career advancement, professional development, or training.
-    factors:
-      - Information on potential career paths within the company
-      - Availability of training programs or educational assistance
-      - Mentorship or leadership development opportunities
+        response = talk_fast(prompt, client=client)
+        try:
+            if isinstance(response, dict) and 'content' in response and 'value' in response['content']:
+                score = response['content']['value']
+            else:
+                raise ValueError("Unexpected response format")
+            
+            if 0 <= score <= 100:
+                criterion['score'] = score
+            else:
+                raise ValueError("Score out of range")
+        except ValueError as ve:
+            logging.error(f"Error parsing score for criterion {criterion['name']}: {ve}")
+            criterion['score'] = 0
+        except Exception as e:
+            logging.error(f"Unexpected error for criterion {criterion['name']}: {e}")
+            criterion['score'] = 0
 
-  - name: 'Compensation and Benefits Transparency'
-    weight: 10
-    description: |
-      Providing information on compensation ranges and benefits can attract candidates aligned with what the company offers.
-    factors:
-      - Inclusion of salary range or compensation package details
-      - Highlighting key benefits (e.g., health insurance, retirement plans)
-      - Mention of unique perks (e.g., remote work options, flexible hours)
+        scores[criterion['key']] = criterion['score']
+        weighted_score = (criterion['score'] * criterion['weight']) / 100
+        total_score += weighted_score
 
-  - name: 'Search Engine Optimization (SEO)'
-    weight: 5
-    description: |
-      The job description should be optimized with relevant keywords to improve visibility in job searches.
-    factors:
-      - Use of industry-standard job titles
-      - Inclusion of relevant keywords and phrases
+    overall_score = int((total_score / total_weight) * 100)  # Normalize to 0-100 scale
 
-Provide a score for each criterion and an overall score out of 100. Then, suggest 3-5 tips for improvement.
+    # Collect improvement tips
+    tips_prompt = f"""
+    Based on your evaluation of the job description, provide 3-5 tips for improvement.
 
-Output your response in the following JSON format:
-{{
-  "scores": {{
-    "clarity_specificity": 0,
-    "inclusivity": 0,
-    "company_culture": 0,
-    "realistic_qualifications": 0,
-    "growth_opportunities": 0,
-    "compensation_transparency": 0,
-    "seo": 0,
-    "legal_compliance": 0
-  }},
-  "overall_score": 0,
-  "improvement_tips": [
-    "Tip 1",
-    "Tip 2",
-    "Tip 3"
-  ]
-}}
+    Job Description:
+    {job_desc}
 
-Strictly JSON. No explanations. No ```json``` wrappers.
-"""
+    Focus on areas that can be enhanced according to modern best practices.
 
+    Output your response as a JSON array of strings, e.g.:
+
+    [
+        "Tip 1",
+        "Tip 2",
+        "Tip 3"
+    ]
+    """
+    tips_text = talk_fast(tips_prompt, max_tokens=150, client=client)
     try:
-        response_text = talk_to_ai(prompt, max_tokens=200, client=client)
-        if response_text:
-            response = json5.loads(response_text)
-            return response
-        else:
-            return None
+        improvement_tips = json5.loads(tips_text)
+        if not isinstance(improvement_tips, list):
+            raise ValueError("Improvement tips should be a list.")
+        # Ensure tips are strings
+        improvement_tips = [str(tip) for tip in improvement_tips]
     except Exception as e:
-        logging.error(f"Error ranking job description: {str(e)}")
-        return None
+        logging.error(f"Error parsing improvement tips: {str(e)}")
+        improvement_tips = []
+
+    result = {
+        "scores": scores,
+        "overall_score": overall_score,
+        "improvement_tips": improvement_tips[:5]  # Limit to 5 tips
+    }
+
+    return result
 
 def extract_text_and_image_from_pdf(file_path):
     import pytesseract
@@ -275,405 +474,386 @@ def extract_text_and_image_from_pdf(file_path):
         return "", []
 
 def assess_resume_quality(resume_images, client=None):
-    prompt = """
-You are a Resume Clarity and Visual Appeal Scoring expert.
+    # Ensure resume_images is a list of base64 encoded strings
+    if not isinstance(resume_images, list) or not resume_images:
+        logging.error("Invalid resume_images format")
+        return 0
 
-Let's define criteria to assess the clarity and visual appeal of a candidate's resume.
+    # Use only the first image (front page)
+    front_page_image = resume_images[0]
 
-criteria:
-  - name: 'Formatting and Layout'
-    weight: 10
-    description: |
-      Assess the overall formatting and layout of the resume. Points are awarded for consistent formatting, proper alignment, and effective use of white space.
-    factors:
-      - Consistent font styles and sizes
-      - Proper alignment of text and sections
-      - Effective use of white space to enhance readability
-      - Appropriate margins and spacing
+    criteria = [
+        {
+            'name': 'Formatting and Layout',
+            'key': 'formatting_layout',
+            'weight': 10,
+            'description': 'Assess the overall formatting and layout of the resume.',
+            'factors': [
+                'Consistent font styles and sizes',
+                'Proper alignment of text and sections',
+                'Effective use of white space to enhance readability',
+                'Appropriate margins and spacing'
+            ]
+        },
+        {
+            'name': 'Section Organization and Headings',
+            'key': 'section_organization',
+            'weight': 15,
+            'description': 'Evaluate the organization of content into clear sections with appropriate headings.',
+            'factors': [
+                'Clear and descriptive section headings',
+                'Logical sequence of sections (e.g., summary, experience, education)',
+                'Use of subheadings where appropriate',
+                'Ease of locating key information'
+            ]
+        },
+        {
+            'name': 'Clarity and Conciseness of Content',
+            'key': 'content_clarity',
+            'weight': 25,
+            'description': 'Assess the clarity and conciseness of the information presented.',
+            'factors': [
+                'Use of clear and straightforward language',
+                'Concise bullet points',
+                'Avoidance of unnecessary jargon or buzzwords',
+                'Focus on relevant information'
+            ]
+        },
+        {
+            'name': 'Visual Elements and Design',
+            'key': 'visual_design',
+            'weight': 20,
+            'description': 'Evaluate the visual appeal of the resume, including the use of visual elements.',
+            'factors': [
+                'Appropriate use of color accents',
+                'Inclusion of relevant visual elements (e.g., icons, charts)',
+                'Consistency in design elements',
+                'Professional appearance suitable for the industry'
+            ]
+        },
+        {
+            'name': 'Grammar and Spelling',
+            'key': 'grammar_spelling',
+            'weight': 20,
+            'description': 'Assess the resume for grammatical correctness and spelling accuracy.',
+            'factors': [
+                'Correct grammar usage',
+                'Accurate spelling throughout',
+                'Proper punctuation',
+                'Professional tone and language'
+            ]
+        },
+        {
+            'name': 'Length and Completeness',
+            'key': 'length_completeness',
+            'weight': 10,
+            'description': 'Evaluate whether the resume is of appropriate length and includes all necessary sections.',
+            'factors': [
+                'Resume length appropriate for experience level (typically 1-2 pages)',
+                'Inclusion of all relevant sections',
+                'Absence of irrelevant or redundant information'
+            ]
+        }
+    ]
 
-  - name: 'Section Organization and Headings'
-    weight: 15
-    description: |
-      Evaluate the organization of content into clear sections with appropriate headings. Points are awarded for logical flow and ease of navigation.
-    factors:
-      - Clear and descriptive section headings
-      - Logical sequence of sections (e.g., summary, experience, education)
-      - Use of subheadings where appropriate
-      - Ease of locating key information
+    scores = {}
+    total_weight = sum(criterion['weight'] for criterion in criteria)
+    total_score = 0
 
-  - name: 'Clarity and Conciseness of Content'
-    weight: 25
-    description: |
-      Assess the clarity and conciseness of the information presented. Points are awarded for clear language, avoidance of jargon, and concise descriptions.
-    factors:
-      - Use of clear and straightforward language
-      - Concise bullet points
-      - Avoidance of unnecessary jargon or buzzwords
-      - Focus on relevant information
+    for criterion in criteria:
+        prompt = f"""
+        Evaluate the resume image based on the criterion: "{criterion['name']}".
 
-  - name: 'Visual Elements and Design'
-    weight: 20
-    description: |
-      Evaluate the visual appeal of the resume, including the use of visual elements such as icons, color accents, or charts, if appropriate for the industry.
-    factors:
-      - Appropriate use of color accents
-      - Inclusion of relevant visual elements (e.g., icons, charts)
-      - Consistency in design elements
-      - Professional appearance suitable for the industry
+        Criterion Description:
+        {criterion['description']}
 
-  - name: 'Grammar and Spelling'
-    weight: 20
-    description: |
-      Assess the resume for grammatical correctness and spelling accuracy. Points are deducted for errors.
-    factors:
-      - Correct grammar usage
-      - Accurate spelling throughout
-      - Proper punctuation
-      - Professional tone and language
+        Factors to consider:
+        {', '.join(criterion['factors'])}
 
-  - name: 'Length and Completeness'
-    weight: 10
-    description: |
-      Evaluate whether the resume is of appropriate length and includes all necessary sections without unnecessary filler.
-    factors:
-      - Resume length appropriate for experience level (typically 1-2 pages)
-      - Inclusion of all relevant sections
-      - Absence of irrelevant or redundant information
+        Provide your evaluation as an integer score from 0 to 100, where 0 is the lowest and 100 is the highest.
+        Only return the integer score, nothing else.
+        """
+        response = talk_fast(prompt, max_tokens=200, image_data=front_page_image, client=client)
+        try:
+            if isinstance(response, dict) and 'content' in response and 'value' in response['content']:
+                score = response['content']['value']
+            else:
+                raise ValueError("Unexpected response format")
+            
+            if 0 <= score <= 100:
+                scores[criterion['key']] = score
+            else:
+                raise ValueError("Score out of range")
+        except Exception as e:
+            logging.error(f"Error parsing score for criterion {criterion['name']}: {str(e)}")
+            scores[criterion['key']] = 0
 
-# Additional Settings
+        weighted_score = (score * criterion['weight']) / 100
+        total_score += weighted_score
 
-max_total_score: 100  # Scores from all criteria sum up to this maximum
+    overall_score = int((total_score / total_weight) * 100)  # Normalize to 0-100 scale
 
-notes: |
-  - The clarity and visual appeal scoring is separate from the job matching score.
-  - These criteria aim to assess how effectively the candidate presents their information.
-  - A well-formatted resume can enhance readability and make a strong first impression.
+    return overall_score
 
-Based on the image(s) of the resume provided, please assess its quality according to the criteria above. For each criterion, provide a score (out of its maximum weight) and a brief explanation. Then, calculate the total weighted score (out of 100).
+def extract_job_requirements(job_desc, client=None):
+    prompt = f"""
+    Extract the key requirements from the following job description.
 
-Output your response in the following JSON format:
-{
-  "total_score": Float
-}
+    Job Description:
+    {job_desc}
 
-No explanations. No ```json``` wrappers.
+    Provide the output in the following JSON format:
+    {{
+      "required_experience_years": integer,
+      "required_education_level": string,
+      "required_skills": [list of strings],
+      "optional_skills": [list of strings],
+      "certifications_preferred": [list of strings],
+      "soft_skills": [list of strings],
+      "keywords_to_match": [list of strings],
+      "emphasis": {{
+        "technical_skills_weight": integer,
+        "soft_skills_weight": integer,
+        "experience_weight": integer,
+        "education_weight": integer,
+        "language_proficiency_weight": integer,
+        "certifications_weight": integer
+      }}
+    }}
+
+    Only output valid JSON. 
+    You can only speak JSON. You can only output valid JSON. Strictly No explanation, no comments, no intro. No \`\`\`json\`\`\` wrapper.
     """
-
+    response = talk_to_ai(prompt, max_tokens=2000, client=client)
     try:
-        response_text = talk_to_ai(prompt, max_tokens=100, image_data=resume_images, client=client)
-        if response_text:
-            response = json5.loads(response_text)
-            return response['total_score']
-        return 0
-    except Exception as e:
-        logging.error(f"Error assessing resume quality: {str(e)}")
-        return 0
+        if isinstance(response, dict):
+            job_requirements = response
+        else:
+            job_requirements = json5.loads(response)
+        return job_requirements
+    except json.JSONDecodeError as e:
+        logging.error(f"Error parsing job requirements: {str(e)}")
+        logging.error(f"Response: {response}")
+        return None
+
+import sys  # Make sure this import is at the top of your file
 
 def match_resume_to_job(resume_text, job_desc, file_path, resume_images, client=None):
-    prompt = f"""Your role is RESUME HR EXPERT. Your goal is to compare the following resume to the job description and provide a match score from 0 to 100.
+    # Extract job requirements and wait for completion
+    job_requirements = extract_job_requirements(job_desc, client)
+    if not job_requirements:
+        logging.error("Failed to extract job requirements")
+        print(colored("Error: Failed to extract job requirements. Exiting program.", 'red'))
+        sys.exit(1)  # Exit the script with an error code
 
-# Enhanced Scoring Matching System Configuration
+    # Check if job_requirements contains expected keys
+    if 'emphasis' not in job_requirements:
+        logging.error("Job requirements missing 'emphasis' key")
+        print(colored("Error: Invalid job requirements format. Exiting program.", 'red'))
+        sys.exit(1)  # Exit the script with an error code
 
-# Step 1: Parse Job Description to Extract Key Requirements
-# The system will extract the following components from job_description.txt
-job_description:
-  required_experience_years: 5  # Extracted number of years of experience
-  required_education_level: 'Masters'  # Extracted minimum education level
-  required_skills:  # SAMPLE, see job_description.txt
-    - 'Python'
-    - 'Machine Learning'
-    - 'Data Analysis'
-    - 'Deep Learning'
-  optional_skills:
-    - 'Cloud Computing'
-    - 'Big Data'
-    - 'Computer Vision'
-  certifications_preferred:
-    - 'AWS Certified Solutions Architect'
-    - 'Certified Data Scientist'
-  soft_skills:
-    - 'Communication'
-    - 'Team Leadership'
-    - 'Problem Solving'
-    - 'Adaptability'
-  keywords_to_match:
-    - 'Neural Networks'
-    - 'NLP'
-    - 'Predictive Modeling'
-  emphasis:
-    technical_skills_weight: 40  # Percentage weight for technical skills
-    soft_skills_weight: 20       # Percentage weight for soft skills
-    experience_weight: 20        # Percentage weight for experience
-    education_weight: 10         # Percentage weight for education
-    language_proficiency_weight: 5  # Weight adjustable based on job requirements
-    certifications_weight: 5        # Weight adjustable based on job requirements
+    criteria = [
+        {
+            'name': 'Language Proficiency',
+            'key': 'language_proficiency',
+            'weight': job_requirements['emphasis'].get('language_proficiency_weight', 5),
+            'description': 'Assign points based on the candidate\'s proficiency in languages relevant to the job.',
+            'factors': [
+                'Proficiency in required languages',
+                'Multilingual abilities relevant to the job'
+            ]
+        },
+        {
+            'name': 'Education Level',
+            'key': 'education_level',
+            'weight': job_requirements['emphasis'].get('education_weight', 10),
+            'description': 'Assign points based on the candidate\'s highest level of education or equivalent experience.',
+            'factors': [
+                'Highest education level attained',
+                'Relevance of degree to the job',
+                'Alternative education paths (certifications, bootcamps, self-learning)'
+            ]
+        },
+        {
+            'name': 'Years of Experience',
+            'key': 'experience_years',
+            'weight': job_requirements['emphasis'].get('experience_weight', 20),
+            'description': 'Assign points based on the relevance and quality of experience.',
+            'factors': [
+                'Total years of relevant experience',
+                'Quality and relevance of previous roles',
+                'Significant achievements in previous positions'
+            ]
+        },
+        {
+            'name': 'Technical Skills',
+            'key': 'technical_skills',
+            'weight': job_requirements['emphasis'].get('technical_skills_weight', 40),
+            'description': 'Assign points for each required and optional skill, considering proficiency level.',
+            'factors': [
+                'Proficiency in required technical skills',
+                'Proficiency in optional technical skills',
+                'Transferable skills and learning ability',
+                'Keywords matched in resume'
+            ]
+        },
+        {
+            'name': 'Certifications',
+            'key': 'certifications',
+            'weight': job_requirements['emphasis'].get('certifications_weight', 5),
+            'description': 'Assign points for each relevant certification.',
+            'factors': [
+                'Possession of preferred certifications',
+                'Equivalent practical experience',
+                'Self-learning projects demonstrating expertise'
+            ]
+        },
+        {
+            'name': 'Soft Skills',
+            'key': 'soft_skills',
+            'weight': job_requirements['emphasis'].get('soft_skills_weight', 20),
+            'description': 'Assign points for each soft skill demonstrated through examples or achievements.',
+            'factors': [
+                'Demonstrated soft skills in resume',
+                'Examples of teamwork, leadership, problem-solving, etc.'
+            ]
+        }
+    ]
 
-# Step 2: Define Scoring Criteria Based on Extracted Requirements
-criteria:
-  - name: 'Language Proficiency'
-    weight: "job_description.emphasis.language_proficiency_weight"
-    scoring_logic:
-      description: |
-        Assign points based on the candidate's proficiency in languages relevant to the job. Full points are awarded for meeting the required proficiency. Multilingual abilities are valued when relevant.
-      required_languages: ['English']  # Adjust based on job description
-      proficiency_levels:
-        'Native': 100
-        'Fluent': 90
-        'Professional Working Proficiency': 80
-        'Intermediate': 70
-        'Basic': 60
-      multilingual_bonus_per_language: 5  # Additional points per relevant language
+    scores = {}
+    total_weight = sum(criterion['weight'] for criterion in criteria)
+    
+    if total_weight == 0:
+        logging.error("Total weight of criteria is zero")
+        return {'score': 0, 'match_reasons': "Error: Invalid criteria weights", 'website': ''}
 
-  - name: 'Education Level'
-    weight: "job_description.emphasis.education_weight"
-    scoring_logic:
-      description: |
-        Assign points based on the candidate's highest level of education or equivalent experience. Emphasize relevant knowledge and skills over formal education. Alternative education paths and significant relevant experience are equally valued.
-      levels:
-        'PhD': 100
-        'Masters': 90
-        'Bachelors': 80
-        'Associate': 70
-        'High School or Equivalent': 60
-        'No Formal Education': 50
-      alternative_paths_bonus: 20  # Points for relevant certifications, bootcamps, or self-directed learning
-      required_level: "job_description.required_education_level"
+    total_score = 0
 
-  - name: 'Years of Experience'
-    weight: "job_description.emphasis.experience_weight"
-    scoring_logic:
-      description: |
-        Assign points based on the relevance and quality of experience. Full points are awarded for meeting required years with relevant experience. Additional points for significant achievements.
-      required_years: "job_description.required_experience_years"
-      max_points: 100
-      experience_points_formula: |
-        If candidate_relevant_years >= required_years:
-          points = 100
-        Else:
-          points = (candidate_relevant_years / required_years) * 100
-      additional_relevance_bonus: 10  # Bonus for highly relevant experience
+    for criterion in criteria:
+        prompt = f"""
+        Evaluate the candidate's resume based on the criterion: "{criterion['name']}".
 
-  - name: 'Technical Skills'
-    weight: "job_description.emphasis.technical_skills_weight"
-    scoring_logic:
-      description: |
-        Assign points for each required and optional skill, considering proficiency level. Emphasize required skills but value transferable skills and learning ability.
-      proficiency_levels:
-        'Expert': 100
-        'Advanced': 85
-        'Intermediate': 70
-        'Beginner': 50
-        'Familiar': 30
-      required_skills_weight: 1.0
-      optional_skills_weight: 0.7
-      transferable_skills_bonus: 10  # Bonus for transferable skills
-      required_skills: "job_description.required_skills"
-      optional_skills: "job_description.optional_skills"
-      keywords_points: 2  # Additional points per matched keyword
-      keywords: "job_description.keywords_to_match"
+        Criterion Description:
+        {criterion['description']}
 
-  - name: 'Certifications'
-    weight: "job_description.emphasis.certifications_weight"
-    scoring_logic:
-      description: |
-        Assign points for each relevant certification. Practical experience and self-learning demonstrating equivalent expertise are equally valued.
-      certifications_points: 5  # Points per relevant certification
-      certifications_preferred: "job_description.certifications_preferred"
-      equivalent_experience_bonus: 5  # Points for practical equivalent experience
-      self_learning_projects_bonus: 5  # Points for self-directed projects
+        Factors to consider:
+        {', '.join(criterion['factors'])}
 
-  - name: 'Soft Skills'
-    weight: "job_description.emphasis.soft_skills_weight"
-    scoring_logic:
-      description: |
-        Assign points for each soft skill demonstrated through examples or achievements. Emphasize importance in team dynamics and culture.
-      soft_skills_points: 5  # Base points per soft skill
-      proficiency_bonus: 5   # Additional points if demonstrated
-      soft_skills: "job_description.soft_skills"
+        Job Requirements:
+        {json.dumps(job_requirements, indent=2)}
 
-  - name: 'Relevance of Experience'
-    weight: 10  # Weight for relevant roles or industries
-    scoring_logic:
-      description: |
-        Assign points for experience in similar or related roles or industries. Value transferable skills and adaptability.
-      relevant_roles_points: 10  # Points for matching roles
-      related_roles_points: 5    # Points for related roles
-      relevant_industries: "job_description.keywords_to_match"
-      consider_transferable_skills: true
+        Resume:
+        {resume_text}
 
-  - name: 'Non-Traditional Experience'
-    weight: 5
-    scoring_logic:
-      description: |
-        Assign points for relevant non-traditional experience such as open-source contributions, personal projects, volunteer work, or self-directed learning.
-      max_points: 100
-      scoring_method: |
-        Evaluate relevance and impact of experiences. Assign points proportionally.
+        Provide your evaluation as an integer score from 0 to 100, where 0 is the lowest and 100 is the highest.
+        Only return the integer score, nothing else. No explanation, no comments, no intro. No \`\`\`json\`\`\` wrapper.
+        """
 
-# Step 3: Additional Settings
-max_total_score: 100  # Normalize scores to this maximum
-normalization_method: |
-  Total scores are scaled to a maximum of 100. Each criterion's score is calculated based on its weight relative to total emphasis weights. Penalties are subtracted after scoring and normalization.
+        response = talk_fast(prompt, client=client)
+        try:
+            if isinstance(response, dict) and 'content' in response and 'value' in response['content']:
+                score = response['content']['value']
+            else:
+                raise ValueError("Unexpected response format")
+            
+            if 0 <= score <= 100:
+                criterion['score'] = score
+            else:
+                raise ValueError("Score out of range")
+        except ValueError as ve:
+            logging.error(f"Error parsing score for criterion {criterion['name']}: {ve}")
+            criterion['score'] = 0
+        except Exception as e:
+            logging.error(f"Unexpected error for criterion {criterion['name']}: {e}")
+            criterion['score'] = 0
 
-diversity_and_inclusion_policy:
-  description: |
-    The scoring system promotes fairness and minimizes bias. It values diverse backgrounds and focuses on abilities, potential, and contributions over traditional metrics.
-career_breaks_policy:
-  description: |
-    Candidates are not penalized for career breaks or non-linear paths. The focus is on relevance and quality of experience, skills, and potential.
+        scores[criterion['key']] = criterion['score']
+        weighted_score = (criterion['score'] * criterion['weight']) / 100
+        total_score += weighted_score
 
-# Penalizing Rules
-red_flags:
-  - name: 'Inconsistencies in Employment History'
-    description: |
-      Penalize for unexplained gaps or overlapping dates in employment history that are not accounted for.
-    penalty_points: 5  # Points to deduct from total score
-    evaluation_logic: |
-      If gaps longer than 6 months are present without explanation, apply penalty.
+    # Normalize total score to 0 - 100 scale
+    final_score = int((total_score / total_weight) * 100)
 
-  - name: 'Misrepresentation of Qualifications'
-    description: |
-      Penalize if there is evidence that the candidate has exaggerated or falsified qualifications, certifications, or experience.
-    penalty_points: 20
-    evaluation_logic: |
-      If discrepancies are found between stated qualifications and verifiable information, apply penalty.
+    # Generate match reasons
+    reasons_prompt = f"""
+    Based on the evaluation, provide 3-4 key reasons for the match between the candidate's resume and the job requirements.
 
-  - name: 'Frequent Job Changes'
-    description: |
-      Penalize for multiple job changes within short periods without clear reasons, indicating potential lack of commitment.
-    penalty_points: 5
-    evaluation_logic: |
-      If more than 3 job changes in the past 2 years without justification, apply penalty.
+    Resume:
+    {resume_text}
 
-  - name: 'Unprofessional Resume Presentation'
-    description: |
-      Penalize for numerous typos, grammatical errors, or poor formatting that reflect a lack of attention to detail.
-    penalty_points: 5
-    evaluation_logic: |
-      If significant errors are present affecting readability, apply penalty.
+    Job Requirements:
+    {json.dumps(job_requirements, indent=2)}
 
-  - name: 'Negative References to Past Employers'
-    description: |
-      Penalize if the candidate speaks negatively about past employers or colleagues, indicating potential interpersonal issues.
-    penalty_points: 5
-    evaluation_logic: |
-      If unprofessional comments are detected, apply penalty.
+    Provide the reasons in telegraphic English, max 10 words per reason, separated by ' | '.
 
-  - name: 'Unprofessional Contact Information'
-    description: |
-      Penalize for unprofessional email addresses or inappropriate content in contact information.
-    penalty_points: 2
-    evaluation_logic: |
-      If contact information contains inappropriate language or nicknames, apply penalty.
+    Only output the reasons as a single string. No explanation, no comments, no intro. No \`\`\`json\`\`\` wrapper.
+    """
+    reasons_response = talk_fast(reasons_prompt, max_tokens=100, client=client)
+    
+    if isinstance(reasons_response, dict) and 'content' in reasons_response:
+        match_reasons = reasons_response['content'].get('value', '')
+    else:
+        logging.error(f"Unexpected format for reasons response: {reasons_response}")
+        match_reasons = ''
 
-  - name: 'Lack of Required Certifications or Licenses'
-    description: |
-      Penalize if the candidate lacks mandatory certifications or licenses required for the job.
-    penalty_points: 10
-    evaluation_logic: |
-      If essential certifications are missing and not compensated by equivalent experience, apply penalty.
+    # Extract website from resume (simple extraction)
+    website = ''
+    website_prompt = f"""
+    Extract the candidate's personal website URL from the resume if available.
 
-  - name: 'Plagiarism'
-    description: |
-      Penalize if there is evidence that the resume content has been plagiarized from templates or other sources without personalization.
-    penalty_points: 10
-    evaluation_logic: |
-      If identical content is found elsewhere without customization, apply penalty.
+    Resume:
+    {resume_text}
 
-  - name: 'Failure to Meet Non-Negotiable Requirements'
-    description: |
-      Penalize if the candidate does not meet essential legal or regulatory requirements (e.g., work authorization).
-    penalty_points: 20
-    evaluation_logic: |
-      If non-negotiable requirements are not met, apply penalty.
+    Only output the URL or an empty string.
+    You can only speak URL. You can only output valid URL. Strictly No explanation, no comments, no intro. No \`\`\`json\`\`\` wrapper.
+    """
+    website_response = talk_fast(website_prompt, max_tokens=200, client=client)
+    
+    if isinstance(website_response, dict) and 'content' in website_response:
+        website = website_response['content'].get('value', '')
+    else:
+        logging.error(f"Unexpected format for website response: {website_response}")
+        website = ''
 
-notes: |
-  - Penalties are subtracted from the total normalized score.
-  - The total penalties should not reduce the score below zero.
-  - The scoring system ensures fairness by focusing on job-relevant red flags.
-  - All penalizations are applied uniformly to all candidates.
+    # Generate email response and subject
+    email_prompt = f"""
+    Compose a professional email response to the candidate based on their match score.
 
-# Step 4: Calculate the final score: 0 - 100
-The scoring logic should normalize the total score to a maximum of 100, then subtract any penalty points. The final score cannot be less than zero. Try to be precise.
+    Score: {final_score}
 
-# Step 5: Check your results and make sure you are happy with them.
+    If the score is below 90, politely reject the candidate. If the score is 90 or above, invite them to the next stage.
 
-MATERIALS:
+    Use personal details and make it personalized.
 
-Resume:
-===
-{resume_text}
-===
+    Provide the output in the following JSON format:
+    {{
+      "email_response": "Email body",
+      "subject_response": "Email subject"
+    }}
 
-Job Description (job_description.txt):
-===
-{job_desc}
-===
-Provide numeric score as the response and 1-paragraph long professional email response I can send to the candidate. No need to explain the score. You can only speak JSON.
-
-Politely reject anyone below 90. Use personal details in reponse, it has to be personalized.
-
-Output format:
-{{
-  "score": Float,
-  "email_response": "Thank you for applying to Frontend Developer at Sky. Your skills impress us. We invite you to next stage. Expect contact for pair programming interview.",
-  "subject_response": "Subject line of the response email",
-  "match_reasons": "highlight1 | highlight2 | highlight3"
-  "website": "personal_website_link_or_empty_string"
-}}
-
-Provide 3-4 key reasons for match. Use telegraphic English. Max 10 words per reason.
-For the website, only include a personal website link if found in the resume. If no personal website is mentioned, leave it as an empty string.
-
-Strictly JSON. No explanations. No \`\`\`json\`\`\` wrappers.
-"""
-
+    You can only speak JSON. You can only output valid JSON. Strictly No explanation, no comments, no intro. No \`\`\`json\`\`\` wrapper.
+    """
+    email_text = talk_to_ai(email_prompt, max_tokens=200, client=client)
     try:
-        response_text = talk_to_ai(prompt, max_tokens=350, image_data=resume_images, client=client)
-        if response_text:
-            response = json5.loads(response_text)
-            score = response.get('score', 0)
-            if not isinstance(score, (int, float)):
-                raise ValueError(f"Invalid score type: {type(score)}. Expected int or float.")
-            
-            email_response = response.get('email_response', '')
-            subject_response = response.get('subject_response', '')
-            match_reasons = response.get('match_reasons', '')
-            website = response.get('website', '')
-            
-            os.makedirs('out', exist_ok=True)
-            file_name = f"out/{os.path.splitext(os.path.basename(file_path))[0]}_response.txt"
-            with open(file_name, 'w') as f:
-                f.write(f"Subject: {subject_response}\n\n{email_response}")
-            
-            # Assess resume quality
-            resume_quality_score = assess_resume_quality(resume_images)
-            
-            # IMPORTANT: Calculate final score
-            # Normalize and combine AI-generated score with resume quality score
-            normalized_combined_score = (score * 0.75 + resume_quality_score * 0.25)
-            # Ensure the final score is between 0 and 100
-            final_score = min(max(normalized_combined_score, 0), 100)
-            
-            return {'score': final_score, 'match_reasons': match_reasons, 'website': website}
-        else:
-            return {'score': 0.0, 'match_reasons': "Error: No response from AI", 'website': ''}
-    except json5.JSONDecodeError as e:
-        logging.error(f"Error parsing JSON for {file_path}: {str(e)}")
-        logging.error(f"Raw response: {response_text}")
-        return {'score': 0.0, 'match_reasons': f"Error: Invalid JSON response - {str(e)}", 'website': ''}
+        email_response = json5.loads(email_text)
+        email_body = email_response.get('email_response', '')
+        email_subject = email_response.get('subject_response', '')
+        # Save email to file
+        os.makedirs('out', exist_ok=True)
+        file_name = f"out/{os.path.splitext(os.path.basename(file_path))[0]}_response.txt"
+        with open(file_name, 'w') as f:
+            f.write(f"Subject: {email_subject}\n\n{email_body}")
     except ValueError as e:
-        logging.error(f"Invalid score for {file_path}: {str(e)}")
-        return {'score': 0.0, 'match_reasons': f"Error: Invalid score - {str(e)}", 'website': ''}
-    except Exception as e:
-        logging.error(f"Unexpected error processing {file_path}: {str(e)}")
-        return {'score': 0.0, 'match_reasons': f"Error: Unexpected - {str(e)}", 'website': ''}
+        logging.error(f"Error parsing email response: {str(e)}")
+        logging.error(f"Raw email text: {email_text}")
+        email_body = ''
+        email_subject = ''
+
+    return {'score': final_score, 'match_reasons': match_reasons, 'website': website}
 
 def get_score_details(score):
-    if not isinstance(score, (int, float)):
-        raise ValueError(f"Invalid score type: {type(score)}. Expected int or float.")
-    
-    score = float(score)  # Ensure score is a float
+    if not isinstance(score, int):
+        raise ValueError(f"Invalid score type: {type(score)}. Expected int.")
     
     score_ranges = [
         {"min_score": 98,  "max_score": 101, "label": 'Cosmic Perfection',      "color": 'magenta',     "emoji": '🌟'},
@@ -736,8 +916,13 @@ def worker(args):
         if not resume_text:
             return (os.path.basename(file), 0, "🔴", "red", "Error: Failed to extract text from PDF", "", "")
         result = match_resume_to_job(resume_text, job_desc, file, resume_images)
-        score = result['score']
-        match_reasons = result['match_reasons']
+        
+        # Use json5 to parse the result
+        if isinstance(result, str):
+            result = json5.loads(result)
+        
+        score = result.get('score', 0)
+        match_reasons = result.get('match_reasons', '')
         website = result.get('website', '')
         
         # Check if the website is accessible
@@ -760,16 +945,23 @@ def worker(args):
                     
                     # Re-run match_resume_to_job with combined_text
                     result = match_resume_to_job(combined_text, job_desc, file, resume_images)
-                    score = result['score']
-                    match_reasons = result['match_reasons']
+                    if isinstance(result, str):
+                        result = json5.loads(result)
+                    score = result.get('score', 0)
+                    match_reasons = result.get('match_reasons', '')
                 except Exception as e:
                     logging.error(f"Error fetching website content for {file}: {str(e)}")
         
         emoji, color, label = get_score_details(score)
         return (os.path.basename(file), score, emoji, color, label, match_reasons, website)
+    except json5.JSONDecodeError as je:
+        error_msg = f"JSON5 Decode Error: {str(je)}"
+        logging.error(f"Error processing {file}: {error_msg}")
+        return (os.path.basename(file), 0, "🔴", "red", error_msg, "", "")
     except Exception as e:
-        logging.error(f"Error processing {file}: {str(e)}")
-        return (os.path.basename(file), 0, "🔴", "red", f"Error: {str(e)}", "", "")
+        error_msg = f"Unexpected Error: {str(e)}"
+        logging.error(f"Error processing {file}: {error_msg}")
+        return (os.path.basename(file), 0, "🔴", "red", error_msg, "", "")
 
 def process_resumes(job_desc, pdf_files):
     with Pool(processes=cpu_count()) as pool:
@@ -802,11 +994,11 @@ Output format, no more than 5 suggestions, 1-sentence long each:
 - Observation or suggestion
 ...
 
-Only output the suggestions, no intro, no explanations, no comments.
+Only output the suggestions, no intro, no explanations, no comments. 
 """
     
     try:
-        suggestions = talk_to_ai(prompt, max_tokens=500)
+        suggestions = talk_to_ai(prompt, max_tokens=1000)
         if suggestions:
             print("\n\033[1mHow can I improve the job description?\033[0m")
             print(suggestions)
