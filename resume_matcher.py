@@ -1,25 +1,18 @@
-import sys
-import json
-import json5 
-import PyPDF2
-import anthropic
-import openai
-from openai import OpenAI
-from openai import OpenAIError
+import sys, json, json5, PyPDF2, anthropic, openai
+from openai import OpenAI, OpenAIError
 from glob import glob
 from multiprocessing import Pool, cpu_count
 from tqdm import tqdm
 import logging
 from termcolor import colored
-import time
-import json5
-import requests
+import time, requests, statistics, base64, os, markdown, pdfkit, io
 from bs4 import BeautifulSoup
 from PIL import Image
-import io
-import statistics
-import base64
-import os
+from pathlib import Path
+from weasyprint import HTML
+import pdfkit
+from pathlib import Path
+import argparse
 
 # Initialize logging with more detailed format
 logging.basicConfig(level=logging.CRITICAL, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -437,19 +430,16 @@ def extract_text_and_image_from_pdf(file_path):
         text = ""
         resume_images = []
 
-        # Extract text from the PDF using PyPDF2
+        # Extract text from all pages of the PDF using PyPDF2
         reader = PdfReader(file_path)
-        first_page_text = ""
-        if reader.pages:
-            first_page = reader.pages[0]
-            first_page_text = first_page.extract_text()
-            if first_page_text:
-                text += first_page_text
+        for page in reader.pages:
+            page_text = page.extract_text()
+            if page_text:
+                text += page_text + "\n"
 
-        # Extract image from the first page
-        images = convert_from_path(file_path, first_page=1, last_page=1)
-        if images:
-            img = images[0]
+        # Extract images from all pages
+        images = convert_from_path(file_path)
+        for i, img in enumerate(images):
             # Convert to grayscale and compress image
             img_gray = img.convert('L')
             img_buffer = io.BytesIO()
@@ -460,14 +450,14 @@ def extract_text_and_image_from_pdf(file_path):
             resume_images.append(img_buffer.getvalue())
 
             # If text extraction is insufficient, perform OCR
-            if not first_page_text or len(first_page_text.strip()) < 500:
+            if not text or len(text.strip()) < 500:
                 ocr_text = pytesseract.image_to_string(Image.open(img_buffer))
-                text += ocr_text
+                text += ocr_text + "\n"
 
-        else:
+        if not images:
             logging.error(f"No images found in PDF {file_path}")
 
-        return text, resume_images
+        return text.strip(), resume_images
 
     except Exception as e:
         logging.error(f"Error extracting text and image from PDF {file_path}: {str(e)}")
@@ -637,6 +627,7 @@ def extract_job_requirements(job_desc, client=None):
         return None
 
 import sys  # Make sure this import is at the top of your file
+import argparse
 
 def match_resume_to_job(resume_text, job_desc, file_path, resume_images, client=None):
     # Extract job requirements and wait for completion
@@ -807,7 +798,7 @@ def match_resume_to_job(resume_text, job_desc, file_path, resume_images, client=
     Only output the URL or an empty string.
     You can only speak URL. You can only output valid URL. Strictly No explanation, no comments, no intro. No \`\`\`json\`\`\` wrapper.
     """
-    website_response = talk_fast(website_prompt, max_tokens=200, client=client)
+    website_response = talk_fast(website_prompt, max_tokens=150, client=client)
     
     if isinstance(website_response, dict) and 'content' in website_response:
         website = website_response['content'].get('value', '')
@@ -821,9 +812,7 @@ def match_resume_to_job(resume_text, job_desc, file_path, resume_images, client=
 
     Score: {final_score}
 
-    If the score is below 90, politely reject the candidate. If the score is 90 or above, invite them to the next stage.
-
-    Use personal details and make it personalized.
+    If the score is below 90, politely reject the person. If the score is 90 or above, invite them to the next stage. Use personal details and make it personalized. Omit signature and "best regards". Friendly concise business tone.
 
     Provide the output in the following JSON format:
     {{
@@ -833,7 +822,7 @@ def match_resume_to_job(resume_text, job_desc, file_path, resume_images, client=
 
     You can only speak JSON. You can only output valid JSON. Strictly No explanation, no comments, no intro. No \`\`\`json\`\`\` wrapper.
     """
-    email_text = talk_to_ai(email_prompt, max_tokens=200, client=client)
+    email_text = talk_to_ai(email_prompt, max_tokens=180, client=client)
     try:
         email_response = json5.loads(email_text)
         email_body = email_response.get('email_response', '')
@@ -909,13 +898,289 @@ def check_website(url):
     except requests.RequestException:
         return False, url
 
+# Define font presets
+FONT_PRESETS = {
+    'sans-serif': "Helvetica, Helvetica-Bold, Helvetica-Oblique, Helvetica-BoldOblique, sans-serif",
+    'serif': "Times-Roman, Times-Bold, Times-Italic, Times-BoldItalic, serif",
+    'mono': "Courier, Courier-Bold, Courier-Oblique, Courier-BoldOblique, monospace"
+}
+
+def unify_format(extracted_data, font_styles, generate_pdf=False):
+    resume_text, resume_images = extracted_data
+    
+    prompt = """
+    Given the following raw text extracted from a resume, convert it into a unified format following these guidelines:
+
+Resume Object Model Definition (Markdown):
+===
+# Full legal name as it appears on official documents or as preferred professionally.        | First and last name; include middle name or initial if commonly used. | Use your professional or legal name.     |
+## Specific position or role aimed for, aligned with the job you're applying for to showcase career focus. | Concise title, typically 2-5 words. | Be specific to highlight your career goals. |
+
+Format: Email / Phone / Country / City
+| Field      | Description                                                        | Expected Length                | Guidelines                                         |
+|------------|--------------------------------------------------------------------|--------------------------------|----------------------------------------------------|
+| **Email**  | Professional email address (e.g., name@example.com).               | Standard email format          | Use a professional email; avoid unprofessional addresses. |
+| **Phone**  | Primary contact number, including country code if applicable.      | Include country code if applicable | Provide a reliable contact number.                  |
+| **Country**| Full country name of current residence.                            | Full country name              | Specify for relocation considerations.             |
+| **City**   | Full city name of current residence.                               | Full city name                 | Indicates proximity to job location.               |
+
+## Summary
+
+Format: plain text
+
+| Field      | Description                                                                                                                | Expected Length                | Guidelines                           |
+|------------|----------------------------------------------------------------------------------------------------------------------------|--------------------------------|--------------------------------------|
+| **Summary**| Brief overview of qualifications and career goals, highlighting key skills, experiences, and achievements aligned with the desired job. | Mention quantifiable data. STAR format, approximately 5-6 sentences or bullet points | Keep it concise and impactful.       |
+
+Format: _skill, skill, skill_   
+
+| Field      | Description                                                                                                                | Expected Length                | Guidelines                           |
+|------------|----------------------------------------------------------------------------------------------------------------------------|--------------------------------|--------------------------------------|
+| **Skills**| List of skills (1-2 words each), separated by commas. | Mention technical skills, programming languages, frameworks, tools, and any other relevant skills. SCan the original data and find the skills. | 1-2 words each, 6-12 skills      |
+
+
+## Employment History
+
+**Description**: Chronological list of past employment experiences (**one or more** entries).
+Format: Company / Job Title / Location
+
+Start - End Date
+
+Responsibilities (list or description)
+
+| Field            | Description                                                           | Expected Length        | Guidelines                                           |
+|------------------|-----------------------------------------------------------------------|------------------------|------------------------------------------------------|
+| **Company**      | Name of employer; include brief descriptor if not well-known.         | Full official name     | Provide context for lesser-known companies.          |
+| **Job Title**    | Official title held; accurately reflects roles and responsibilities.  | Standard job title     | Use accurate and professional titles.                |
+| **Location**     | City, State/Province, Country.                                        | Full location          | Provides context about work environment.             |
+| **Start - End Date** | Employment period (e.g., June 2015 - Present).                       | Format as 'Month Year' | Ensure accuracy and consistency in formatting.       |
+| **Responsibilities** | Key duties, achievements, contributions (**one or more** bullet points). | ~3-6 bullet points     | Start with action verbs; quantify achievements when possible. |
+
+## Education
+
+**Description**: Academic qualifications and degrees obtained (**one or more** entries).
+Format: Institution / Degree / Location
+
+Start - End Date
+
+Description (if any)
+
+| Field            | Description                                                           | Expected Length        | Guidelines                                           |
+|------------------|-----------------------------------------------------------------------|------------------------|------------------------------------------------------|
+| **Institution**  | Name of educational institution; add location if not widely known.    | Full official name     | Provide context for lesser-known institutions.       |
+| **Degree**       | Degree or certification earned; specify field of study.               | Full degree title      | Highlight relevance to desired job.                  |
+| **Location**     | City, State/Province, Country.                                        | Full location          | Provides context about institution's setting.        |
+| **Start - End Date** | Education period (e.g., August 2004 - May 2008).                     | Format as 'Month Year' | Use consistent formatting.                           |
+| **Description**    | Additional information about the education (if any).                  | ~1-2 sentences         | Include if relevant; keep it concise.               |
+
+## Courses (Optional)
+
+**Description**: Relevant courses, certifications, or training programs completed (**one or more** entries).
+Format: Course / Platform
+
+Start - End Date
+
+Description (if any)    
+
+| Field            | Description                                                           | Expected Length        | Guidelines                                           |
+|------------------|-----------------------------------------------------------------------|------------------------|------------------------------------------------------|
+| **Platform**     | Provider or platform name (e.g., Coursera, Udemy).                    | Organization name      | List reputable providers.                            |
+| **Title**        | Official course or certification name.                                | Full title             | Use exact title for verification.                    |
+| **Start - End Date** | Course period; can omit if not available.                           | Format as 'Month Year' | Include for context if possible.                     |
+| **Description**  | Additional information about the course (if any).                    | ~1-2 sentences         | Include if relevant; keep it concise.               |
+
+## Languages
+
+**Description**: Languages known and proficiency levels (**one or more** entries).
+Format: Language / Proficiency
+
+| Field            | Description                                | Expected Length    | Guidelines                                   |
+|------------------|--------------------------------------------|--------------------|----------------------------------------------|
+| **Language**     | Name of the language (e.g., Spanish).      | Full language name | List languages enhancing your profile.       |
+| **Proficiency**  | Level of proficiency (e.g., Native, Fluent). | Standard levels    | Use recognized scales like CEFR.             |
+
+## Links (Optional)
+
+**Description**: Online profiles, portfolios, or relevant links (**one or more** entries).
+Format: list of links
+
+- [Title](URL)
+
+| Field      | Description                                          | Expected Length | Guidelines                                     |
+|------------|------------------------------------------------------|-----------------|------------------------------------------------|
+| **Title**  | Descriptive title (e.g., "My GitHub Profile").       | Short phrase    | Make it clear and professional.                |
+| **URL**    | Direct hyperlink to the resource.                    | Full URL        | Ensure links are active and professional.      |
+
+## Hobbies (Optional)
+Format: list of hobbies
+
+| Field      | Description                          | Expected Length     | Guidelines                                       |
+|------------|--------------------------------------|---------------------|--------------------------------------------------|
+| **Hobbies**| Personal interests or activities.    | List of 3-5 hobbies | Showcase positive traits; avoid controversial topics. |
+
+## Misc (Optional)
+Format: list of misc
+
+| Field      | Description                          | Expected Length     | Guidelines                                       |
+|------------|--------------------------------------|---------------------|--------------------------------------------------|
+| **Misc**| Any other information.    | List of any other information | Showcase positive traits; avoid controversial topics. |
+
+===
+
+# General Guidelines:
+
+- **Repeatable Sections**: Employment History, Education, Courses, Languages, and Links can contain **one or more** entries.
+- **Optional Sections**: Courses, Links, and Hobbies are **optional**. Omit sections not present in the original resume. **Do not add or invent information**.
+- **No Invented Information**: The parser must strictly use only the information provided in the original resume. Do not create, infer, or embellish any details.
+
+# Parser Rules:
+
+To convert an original resume into the defined object model, a parser should follow these rules:
+
+1. **Information Extraction**: Extract information exactly as it appears in the original document. Pay attention to details such as names, dates, job titles, and descriptions.
+
+2. **Section Mapping**: Map the content of the resume to the corresponding sections in the object model:
+   - **Name**: Extract from the top of the resume or personal details section.
+   - **Desired Job Title**: Look for a stated objective or title near the beginning.
+   - **Personal Details**: Extract email, phone, country, and city from the contact information.
+   - **Summary**: Use the professional summary or objective section.
+   - **Employment History**: Identify past job experiences, including company names, job titles, locations, dates, and responsibilities.
+   - **Education**: Extract academic qualifications with institution names, degrees, locations, and dates.
+   - **Courses**: Include any additional training or certifications listed.
+   - **Languages**: Note any languages and proficiency levels mentioned.
+   - **Links**: Extract URLs to professional profiles or portfolios.
+   - **Hobbies**: Include personal interests if provided.
+   - **Misc**: Include any other information if provided.
+
+3. **Consistency and Formatting**:
+   - Ensure dates are formatted consistently throughout (e.g., 'Month Year').
+   - Use bullet points for lists where applicable.
+   - Maintain the order of entries as they appear in the original resume unless a different order enhances clarity.
+
+4. **Accuracy**:
+   - Double-check all extracted information for correctness.
+   - Preserve the original wording, especially in descriptions and responsibilities, unless minor adjustments are needed for clarity.
+
+5. **Exclusion of Unavailable Information**:
+   - If a section or specific detail is not present in the original resume, omit that section or field in the output.
+   - Do not fill in default or placeholder values for missing information.
+
+6. **Avoiding Invention or Assumption**:
+   - Do not add any information that is not explicitly stated in the original document.
+   - Do not infer skills, responsibilities, or qualifications from context or general knowledge.
+
+7. **Enhancements**:
+   - Minor rephrasing for grammar or clarity is acceptable but should not alter the original meaning.
+   - Do NOT fix typos or grammar mistakes.
+   - Quantify achievements where numbers are provided; do not estimate or create figures.
+
+8. **Professional Language**:
+   - Ensure all language used is professional and appropriate for a resume.
+   - Remove any informal language or slang that may have been present.
+
+9. **Confidentiality**:
+   - Handle all personal data with confidentiality.
+   - Do not expose sensitive information in the output that was not intended for inclusion.
+
+10. **Validation**:
+    - Validate all URLs to ensure they are correctly formatted.
+    - Verify that contact information follows standard formats.
+
+11. **Omit Empty Sections**:
+    - Omit sections that contain no information from the original resume.
+
+    Raw Resume Text:
+~~~
+    {resume_text}
+~~~
+
+    Please structure the resume information according to the provided format. Only include sections and details that are present in the original text. Do not invent or assume any information. No more then 4000 tokens.
+    No intro, no explanations, no comments. 
+    Use telegraphic english with no fluff. Keep all the information, do NOT invent data.
+    No ```` or ```yaml or ```json or ```json5 or ``` or --- or any other formatting. Just clean text.
+You can only speak in clean, concise, Markdown format.     
+    """
+
+    unified_resume = talk_to_ai(prompt.format(resume_text=resume_text), max_tokens=4092)
+    
+    # Create 'out' folder if it doesn't exist
+    out_folder = Path('out')
+    out_folder.mkdir(exist_ok=True)
+    
+    # Extract the name from the first line of the unified resume
+    first_line = unified_resume.split('\n', 1)[0]
+    if first_line.lower().startswith('# '):
+        name = first_line[2:].strip()  # Remove '# ' and trim whitespace
+    else:
+        name = 'Unknown'  # Fallback if name is not found in expected format
+    
+    # Generate a filename based on the extracted name
+    safe_filename = ''.join(c for c in name if c.isalnum() or c in (' ', '.', '_')).rstrip()
+    safe_filename = safe_filename[:50]  # Limit filename length
+    
+    # Save as Markdown
+    md_filename = out_folder / f"{safe_filename}_unified.md"
+    with open(md_filename, 'w', encoding='utf-8') as md_file:
+        md_file.write(unified_resume)
+    logging.info(f"Markdown file created: {md_filename}")
+    
+    if generate_pdf:
+        # Convert Markdown to HTML (in memory)
+        html_content = markdown.markdown(unified_resume)
+
+        if font_styles.get('serif'):
+            font_family = FONT_PRESETS['serif']
+        elif font_styles.get('mono'):
+            font_family = FONT_PRESETS['mono']
+        else:
+            font_family = FONT_PRESETS['sans-serif']  # Default to sans-serif
+
+        html_with_style = f"""
+        <html>
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <style>
+            * {{
+                color: #3A3F53;
+                font-family: {font_family};
+            }}
+            body {{
+                font-size: 0.67em;
+                letter-spacing: -0.01em;
+                line-height: 1.125;
+                background-color: #fff;
+                padding: 0;
+                margin: 0;
+            }}
+            </style>
+        </head>
+        <body>
+            {html_content}
+        </body>
+        </html>
+        """
+
+        # Convert HTML to PDF
+        pdf_filename = out_folder / f"{safe_filename}_unified.pdf"
+        try:
+            HTML(string=html_with_style).write_pdf(pdf_filename)
+            logging.info(f"PDF file created: {pdf_filename}")
+        except Exception as e:
+            logging.error(f"Error creating PDF: {str(e)}")
+    
+    return unified_resume, resume_images
+
 def worker(args):
-    file, job_desc = args
+    file, job_desc, font_styles, generate_pdf = args
     try:
-        resume_text, resume_images = extract_text_and_image_from_pdf(file)
-        if not resume_text:
-            return (os.path.basename(file), 0, "🔴", "red", "Error: Failed to extract text from PDF", "", "")
-        result = match_resume_to_job(resume_text, job_desc, file, resume_images)
+        extracted_data = extract_text_and_image_from_pdf(file)
+        unified_resume, resume_images = unify_format(extracted_data, font_styles, generate_pdf)
+        
+        if not unified_resume:
+            return (os.path.basename(file), 0, "🔴", "red", "Error: Failed to unify resume format", "", "")
+        
+        result = match_resume_to_job(unified_resume, job_desc, file, resume_images)
         
         # Use json5 to parse the result
         if isinstance(result, str):
@@ -940,8 +1205,8 @@ def worker(args):
                     soup = BeautifulSoup(response.content, 'html.parser')
                     website_text = soup.get_text(separator=' ', strip=True)
                     
-                    # Combine resume_text and website_text
-                    combined_text = f"{resume_text}\n\nWebsite Content:\n{website_text}"
+                    # Combine unified_resume and website_text
+                    combined_text = f"{unified_resume}\n\nWebsite Content:\n{website_text}"
                     
                     # Re-run match_resume_to_job with combined_text
                     result = match_resume_to_job(combined_text, job_desc, file, resume_images)
@@ -954,8 +1219,8 @@ def worker(args):
         
         emoji, color, label = get_score_details(score)
         return (os.path.basename(file), score, emoji, color, label, match_reasons, website)
-    except json5.JSONDecodeError as je:
-        error_msg = f"JSON5 Decode Error: {str(je)}"
+    except json.JSONDecodeError as je:
+        error_msg = f"JSON Decode Error: {str(je)}"
         logging.error(f"Error processing {file}: {error_msg}")
         return (os.path.basename(file), 0, "🔴", "red", error_msg, "", "")
     except Exception as e:
@@ -963,9 +1228,9 @@ def worker(args):
         logging.error(f"Error processing {file}: {error_msg}")
         return (os.path.basename(file), 0, "🔴", "red", error_msg, "", "")
 
-def process_resumes(job_desc, pdf_files):
+def process_resumes(job_desc, pdf_files, font_styles, generate_pdf):
     with Pool(processes=cpu_count()) as pool:
-        results = list(tqdm(pool.imap(worker, [(file, job_desc) for file in pdf_files]), total=len(pdf_files), desc=f"Processing {len(pdf_files)} resumes"))
+        results = list(tqdm(pool.imap(worker, [(file, job_desc, font_styles, generate_pdf) for file in pdf_files]), total=len(pdf_files), desc=f"Processing {len(pdf_files)} resumes"))
     return results
 
 def analyze_overall_matches(job_desc, results):
@@ -1028,23 +1293,31 @@ Please provide an improved version of the job description that addresses the imp
         return None
 
 def main():
+    parser = argparse.ArgumentParser(description="Resume Matcher")
+    parser.add_argument("--sans-serif", action="store_true", help="Use sans-serif font preset")
+    parser.add_argument("--serif", action="store_true", help="Use serif font preset")
+    parser.add_argument("--mono", action="store_true", help="Use monospace font preset")
+    parser.add_argument("--pdf", action="store_true", help="Generate PDF files")
+    parser.add_argument("job_desc_file", nargs="?", default="job_description.txt", help="Path to job description file")
+    parser.add_argument("pdf_folder", nargs="?", default="src", help="Folder containing PDF resumes")
+    
+    args = parser.parse_args()
+
+    font_styles = {
+        'sans-serif': args.sans_serif,
+        'serif': args.serif,
+        'mono': args.mono
+    }
+
     choose_api()
-    if len(sys.argv) == 1:
-        job_desc_file = "job_description.txt"
-        if not os.path.exists(job_desc_file):
-            job_desc_file = input("Enter the path to the job description file: ")
-    else:
-        job_desc_file = sys.argv[1]
-
-    pdf_folder = sys.argv[2] if len(sys.argv) > 2 else "src"
-
+    
     # Ensure the job description file exists
-    while not os.path.exists(job_desc_file):
-        print(f"File not found: {job_desc_file}")
-        job_desc_file = input("Enter the path to the job description file: ")
+    while not os.path.exists(args.job_desc_file):
+        print(f"File not found: {args.job_desc_file}")
+        args.job_desc_file = input("Enter the path to the job description file: ")
 
     # Read job description
-    with open(job_desc_file, 'r') as file:
+    with open(args.job_desc_file, 'r') as file:
         job_desc = file.read().strip()
 
     # Prompt user for job description analysis
@@ -1075,16 +1348,16 @@ def main():
                 print(colored("\nFailed to enhance job description", 'red'))
 
     # Get all PDF files in the specified folder
-    pdf_files = glob(os.path.join(pdf_folder, "*.pdf"))
+    pdf_files = glob(os.path.join(args.pdf_folder, "*.pdf"))
 
     if not pdf_files:
-        print(f"No PDF files found in {pdf_folder}")
+        print(f"No PDF files found in {args.pdf_folder}")
         sys.exit(1)
 
-    logging.info(f"Found {len(pdf_files)} PDF files in {pdf_folder}")
+    logging.info(f"Found {len(pdf_files)} PDF files in {args.pdf_folder}")
     logging.info("Starting resume processing...")
 
-    results = process_resumes(job_desc, pdf_files)
+    results = process_resumes(job_desc, pdf_files, font_styles, args.pdf)
     sorted_results = sorted(results, key=lambda x: x[1], reverse=True)
     
     top_score = 0

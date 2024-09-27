@@ -2,117 +2,41 @@
 
 ## Overview
 
-**Resume Job Matcher** is a Python script that automates the process of matching resumes to a job description using AI. It leverages the Anthropic Claude API to analyze resumes and provide a match score along with personalized email responses for candidates.
-
-This tool is designed to streamline the recruitment process by efficiently processing multiple resumes and highlighting the best candidates based on customizable criteria. The script uses advanced natural language processing to compare resume content with job requirements, considering factors such as skills, experience, education, and even personal website content when available.
+**Resume Job Matcher** is a Python script that automates the process of matching resumes to a job description using AI. It leverages the Anthropic Claude API or OpenAI's GPT API to analyze resumes and provide a match score along with personalized email responses for candidates.
 
 ![Area](https://github.com/user-attachments/assets/1fee4382-7462-4463-9cb1-61704eea218b)
 
 ## Features
 
-- **Automated Resume Parsing**: Extracts text from PDF resumes using `PyPDF2`.
-- **AI-Powered Matching**: Utilizes the Claude API to compare resumes with job descriptions.
-- **Advanced Scoring System**: Implements a comprehensive scoring mechanism based on skills, experience, education, certifications, and more.
-- **Multiprocessing Support**: Processes resumes in parallel using all available CPU cores.
-- **Personalized Communication**: Generates professional email responses for candidates.
-- **Website Content Integration**: Includes personal website content in the evaluation if provided.
-- **Detailed Logging and Error Handling**: Provides robust logging and gracefully handles exceptions.
-- **Interactive Console Output**: Displays a fun "resume matching dance" animation during processing.
-- **Comprehensive Result Summary**: Provides a detailed summary of top, average, and bottom scores.
-- **Dual AI Provider Support**: Offers the choice between Anthropic's Claude API and OpenAI's GPT API for AI-powered analysis.
-- **Fast AI Communication**: Utilizes a `talk_fast` function for efficient communication with AI models, supporting both text and image inputs.
-- **Structured AI Responses**: Implements a Pydantic model (`AIResponse`) for structured and validated AI responses.
-- **Dynamic API Selection**: Allows users to choose between Anthropic and OpenAI APIs at runtime.
+- 🔥 **Multiple Outputs**: PDF and Markdown resume generation
+- 🆕 **Font Customization**: Sans-serif, serif, monospace options for PDFs
+- 🆕 **Resume Standardization**: Consistent format for fair evaluation
+- **AI Matching**: Resume-job comparison via Claude/GPT API
+- **Resume Parsing**: PDF text extraction with `PyPDF2`
+- **Scoring**: Skills, experience, education, certifications evaluation
+- **Parallel Processing**: Multi-core efficiency
+- **Email Generation**: Personalized candidate responses
+- **Website Integration**: Personal site content inclusion
+- **Logging/Error Handling**: Robust exception management
+- **Interactive Output**: "Resume matching dance" animation
+- **Result Summary**: Top, average, bottom scores
+- **Dual AI**: Claude and GPT API support with runtime selection
+- **Efficient AI Comm**: Fast model interaction
+- **Structured Responses**: Pydantic model for AI output
 
 ![CleanShot 2024-09-23 at 23 02 45@2x](https://github.com/user-attachments/assets/bc789343-839e-44bc-b3fb-df3cedf869a8)
 
-## Scoring System and Output Interpretation
+## Usage
 
-### Scoring Mechanism
+To run the script with the new features:
 
-The script uses a sophisticated scoring system that considers various factors:
+```bash
+python resume_matcher.py [--sans-serif|--serif|--mono] [--pdf] [job_desc_file] [pdf_folder]
+```
 
-- Match between resume content and job requirements
-- Relevance of skills and experience
-- Education level
-- Years of experience
-- Certifications
-- Soft skills
-- Personal website content (if available)
-
-The AI model analyzes these factors and assigns a score from 0 to 100.
-
-### Output Interpretation
-
-- **Emojis and Labels**: Each candidate is assigned an emoji and label based on their score. For example:
-  - `🌟🚀 98% - Cosmic Perfection`
-  - `🦄✨ 95% - Unicorn Candidate`
-  - `🌠💫 93% - Superstar Plus`
-  - ...
-  - `☄️ 10% - Cosmic Mismatch`
-
-- **Match Reasons**: For candidates scoring above 80%, key reasons for the match are displayed.
-
-- **Website Status**:
-  - Active websites are included in the evaluation.
-  - Inactive or unreachable websites result in a score penalty and are marked as `(inactive)`.
-
-### Result Summary
-
-After processing all resumes, the script provides a summary including:
-
-- Top Score
-- Average Score
-- Bottom Score
-- Number of Processed Resumes
-- Number of Errors Encountered (if any)
-
-This summary helps recruiters quickly gauge the overall quality of the candidate pool.
-
-## Advanced Features
-
-### AI Provider Flexibility
-
-- **API Choice**: Users can select between Anthropic's Claude API and OpenAI's GPT API at the start of the script.
-- **Model Customization**: Easily switch between different AI models by modifying the `model` parameter in the `talk_fast` function.
-
-### Efficient AI Communication
-
-- **talk_fast Function**: A versatile function that handles communication with both Anthropic and OpenAI APIs.
-- **Support for Text and Image Inputs**: Can process both textual and image-based inputs for comprehensive resume analysis.
-- **Token Management**: Automatically manages token limits to ensure optimal use of API context windows.
-
-### Structured AI Responses
-
-- **Pydantic Models**: Utilizes Pydantic for defining structured response types (Score, Reasons, URL, Email).
-- **Response Validation**: Ensures AI responses conform to expected structures, improving reliability and error handling.
-
-### Dynamic Scoring System
-
-- **Customizable Criteria**: The scoring system uses dynamically weighted criteria that can be adjusted based on job requirements.
-- **Comprehensive Evaluation**: Considers factors such as language proficiency, education, experience, technical skills, certifications, and soft skills.
-
-### Website Content Integration
-
-- **Personal Websites**: If a personal website URL is found in a resume, the script will:
-  - Check if the website is active.
-  - Fetch and include website content in the evaluation.
-  - Penalize the score if the website is inactive.
-  - Re-run the matching process with combined resume and website content for a more comprehensive evaluation.
-
-### Detailed Logging and Error Handling
-
-- **Logging**: Configurable logging levels (`CRITICAL`, `ERROR`, `WARNING`, `INFO`, `DEBUG`).
-- **Error Handling**: Gracefully handles exceptions without stopping the entire process.
-
-### Personalized Candidate Communication
-
-- Generates professional, personalized email responses based on the match score.
-- Saves responses in the `out` directory for easy access.
-
-### Interactive Console Output
-
-The script provides an engaging user experience with a "resume matching dance" animation displayed in the console during processing. This fun feature uses ASCII art and emojis to show progress and keep users entertained while the script processes resumes.
+- Use `--sans-serif`, `--serif`, or `--mono` to select a font preset.
+- Use `--pdf` to generate PDF versions of unified resumes.
+- Optionally specify custom paths for the job description file and PDF folder.
 
 ## Customization
 
