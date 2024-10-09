@@ -1261,34 +1261,70 @@ def worker(args):
         logging.error(f"Error processing {file}: {error_msg}")
         return (os.path.basename(file), 0, "🔴", "red", error_msg, "", "", [])
 
+import concurrent.futures
+
+import concurrent.futures
+from functools import partial
+
 def process_resumes(job_desc, pdf_files, font_styles, generate_pdf):
-    results = []
-    with tqdm(total=len(pdf_files), desc="Processing resumes", unit="file", ncols=None, bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}{postfix}]') as pbar:
-        for file in pdf_files:
-            try:
-                basename = os.path.basename(file)[:20]  # Truncate to 20 chars for compactness
-                
-                pbar.set_postfix_str(f"Extracting: {basename}")
-                extracted_data = extract_text_and_image_from_pdf(file)
-                
-                pbar.set_postfix_str(f"Unifying: {basename}")
-                unified_resume, resume_images = unify_format(extracted_data, font_styles, generate_pdf)
-                
-                if not unified_resume:
-                    results.append((basename, 0, "🔴", "red", "Error: Failed to unify resume format", "", "", []))
-                    pbar.update(1)
-                    continue
-                
-                pbar.set_postfix_str(f"Matching: {basename}")
-                result = match_resume_to_job(unified_resume, job_desc, file, resume_images)
-                
-                results.append(process_result(basename, result))
+    with concurrent.futures.ThreadPoolExecutor(max_workers=min(os.cpu_count(), len(pdf_files))) as executor:
+        # First, parallelize the unification process
+        unified_futures = {executor.submit(unify_single_resume, file, font_styles, generate_pdf): file for file in pdf_files}
+        
+        unified_results = {}
+        with tqdm(total=len(pdf_files), desc="Unifying resumes", unit="file") as pbar:
+            for future in concurrent.futures.as_completed(unified_futures):
+                file = unified_futures[future]
+                try:
+                    unified_resume, resume_images = future.result()
+                    unified_results[file] = (unified_resume, resume_images)
+                except Exception as e:
+                    unified_results[file] = (None, None)
                 pbar.update(1)
-            except Exception as e:
-                pbar.write(f"Error processing {basename}: {str(e)}")
-                results.append((basename, 0, "🔴", "red", f"Error: {str(e)}", "", "", []))
+        
+        # Then, parallelize the matching process
+        match_func = partial(match_single_resume, job_desc)
+        match_futures = {executor.submit(match_func, file, *unified_results[file]): file for file in pdf_files}
+        
+        results = []
+        with tqdm(total=len(pdf_files), desc="Matching resumes", unit="file") as pbar:
+            for future in concurrent.futures.as_completed(match_futures):
+                file = match_futures[future]
+                try:
+                    result = future.result()
+                    results.append(result)
+                except Exception as e:
+                    basename = os.path.basename(file)[:20]
+                    results.append((basename, 0, "🔴", "red", f"Error: {str(e)}", "", "", []))
                 pbar.update(1)
+    
     return results
+
+def unify_single_resume(file, font_styles, generate_pdf):
+    extracted_data = extract_text_and_image_from_pdf(file)
+    return unify_format(extracted_data, font_styles, generate_pdf)
+
+def match_single_resume(job_desc, file, unified_resume, resume_images):
+    if not unified_resume:
+        basename = os.path.basename(file)[:20]
+        return (basename, 0, "🔴", "red", "Error: Failed to unify resume format", "", "", [])
+    
+    result = match_resume_to_job(unified_resume, job_desc, file, resume_images)
+    return process_result(os.path.basename(file)[:20], result)
+
+def process_single_resume(job_desc, file, font_styles, generate_pdf):
+    basename = os.path.basename(file)[:20]
+    try:
+        extracted_data = extract_text_and_image_from_pdf(file)
+        unified_resume, resume_images = unify_format(extracted_data, font_styles, generate_pdf)
+        
+        if not unified_resume:
+            return (basename, 0, "🔴", "red", "Error: Failed to unify resume format", "", "", [])
+        
+        result = match_resume_to_job(unified_resume, job_desc, file, resume_images)
+        return process_result(basename, result)
+    except Exception as e:
+        return (basename, 0, "🔴", "red", f"Error: {str(e)}", "", "", [])
 
 def process_result(basename, result):
     if isinstance(result, str):
