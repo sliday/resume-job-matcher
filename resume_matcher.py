@@ -705,7 +705,7 @@ def match_resume_to_job(resume_text, job_desc, file_path, resume_images, client=
         {
             'name': 'Soft Skills',
             'key': 'soft_skills',
-            'weight': job_requirements['emphasis'].get('soft_skills_weight', 20),
+            'weight': job_requirements['emphasis'].get('soft_skills_weight', 9),
             'description': 'Assign points for each soft skill demonstrated through examples or achievements.',
             'factors': [
                 'Demonstrated soft skills in resume',
