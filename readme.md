@@ -25,6 +25,7 @@
   - Multi-factor assessment: skills, experience, education, certifications
   - Visual and content-based quality assessment
   - 🚩 Red flag detection in critical areas
+  ![CleanShot 2024-10-09 at 17 08 09@2x](https://github.com/user-attachments/assets/e47b57e1-521a-4b21-aeb3-975af1e0f2ed)
   - Detailed scoring with emoji and color-coded results
 
 - 📈 **Comprehensive Analytics & Reporting**
