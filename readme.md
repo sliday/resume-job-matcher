@@ -8,21 +8,38 @@
 
 ## Features
 
-- 🔥 **Multiple Outputs**: PDF and Markdown resume generation
-- 🆕 **Font Customization**: Sans-serif, serif, monospace options for PDFs
-- 🆕 **Resume Standardization**: Consistent format for fair evaluation
-- **AI Matching**: Resume-job comparison via Claude/GPT API
-- **Resume Parsing**: PDF text extraction with `PyPDF2`
-- **Scoring**: Skills, experience, education, certifications evaluation
-- **Parallel Processing**: Multi-core efficiency
-- **Email Generation**: Personalized candidate responses
-- **Website Integration**: Personal site content inclusion
-- **Logging/Error Handling**: Robust exception management
-- **Interactive Output**: "Resume matching dance" animation
-- **Result Summary**: Top, average, bottom scores
-- **Dual AI**: Claude and GPT API support with runtime selection
-- **Efficient AI Comm**: Fast model interaction
-- **Structured Responses**: Pydantic model for AI output
+- 🔥 **Comprehensive Resume Processing**
+  - Multiple outputs: PDF and Markdown generation
+  - Standardization for fair evaluation
+  - Font customization (sans-serif, serif, monospace)
+  - Command-line options for flexibility
+
+- 🧠 **Advanced AI-Powered Analysis**
+  - Resume-job comparison using Claude/GPT API
+  - Dual AI support with runtime selection
+  - Efficient model interaction
+  - Structured data handling with Pydantic
+
+- 📊 **In-depth Evaluation & Scoring**
+  - Smart parsing with PyPDF2
+  - Multi-factor assessment: skills, experience, education, certifications
+  - Visual and content-based quality assessment
+  - 🚩 Red flag detection in critical areas
+  - Detailed scoring with emoji and color-coded results
+
+- 📈 **Comprehensive Analytics & Reporting**
+  - Statistical insights: top, average, median, standard deviation scores
+  - Candidate distribution summary
+  - Match analysis with improvement suggestions
+  - Job description optimization recommendations
+
+- 🌐 **Enhanced Candidate Profiling**
+  - Website integration for improved matching
+  - Personalized email generation
+
+- 🛠️ **Robust System Management**
+  - Advanced logging and error handling
+  - Improved user feedback and reliability
 
 ![CleanShot 2024-09-23 at 23 02 45@2x](https://github.com/user-attachments/assets/bc789343-839e-44bc-b3fb-df3cedf869a8)
 
