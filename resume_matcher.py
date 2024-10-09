@@ -248,98 +248,91 @@ def talk_fast(messages, model="gpt-4o-mini", max_tokens=1000, client=None, image
         logging.error(f"Error in talk_fast: {error_message}")
         return None
 
+red_flags = {
+    '🚩': [],
+    '📍': [],
+    '⛳': []
+}
+
 def rank_job_description(job_desc, client=None):
     criteria = [
         {
-            'name': 'Clarity and Specificity',
-            'key': 'clarity_specificity',
-            'weight': 20,
-            'description': 'The job description should clearly outline the responsibilities, required qualifications, and expectations without ambiguity.',
+            'name': 'Language Proficiency',
+            'key': 'language_proficiency',
+            'weight': job_desc['emphasis'].get('language_proficiency_weight', 5),
+            'description': 'Assign points based on the candidate\'s proficiency in languages relevant to the job.',
             'factors': [
-                'Use of clear and concise language',
-                'Detailed list of job responsibilities',
-                'Specific qualifications and experience required',
-                'Avoidance of vague terms like "sometimes," "maybe," or "as needed"'
+                'Proficiency in required languages',
+                'Multilingual abilities relevant to the job'
             ]
         },
         {
-            'name': 'Inclusivity and Bias-Free Language',
-            'key': 'inclusivity',
-            'weight': 20,
-            'description': 'The job description should use inclusive language that encourages applications from a diverse range of candidates.',
+            'name': 'Education Level',
+            'key': 'education_level',
+            'weight': job_desc['emphasis'].get('education_weight', 10),
+            'description': 'Assign points based on the candidate\'s highest level of education or equivalent experience.',
             'factors': [
-                'Gender-neutral pronouns and job titles',
-                'Avoidance of ageist, ableist, or culturally biased language',
-                'Inclusion of diversity and inclusion statements'
+                'Highest education level attained',
+                'Relevance of degree to the job',
+                'Alternative education paths (certifications, bootcamps, self-learning)'
             ]
         },
         {
-            'name': 'Company Culture and Values Description',
-            'key': 'company_culture',
-            'weight': 15,
-            'description': 'The job description should provide insight into the company\'s culture, mission, and values to help candidates assess cultural fit.',
+            'name': 'Years of Experience',
+            'key': 'experience_years',
+            'weight': job_desc['emphasis'].get('experience_weight', 20),
+            'description': 'Assign points based on the relevance and quality of experience.',
             'factors': [
-                'Clear statement of company mission and values',
-                'Description of team dynamics and work environment',
-                'Emphasis on aspects like innovation, collaboration, or employee development'
+                'Total years of relevant experience',
+                'Quality and relevance of previous roles',
+                'Significant achievements in previous positions'
             ]
         },
         {
-            'name': 'Realistic and Prioritized Qualifications',
-            'key': 'realistic_qualifications',
-            'weight': 15,
-            'description': 'The qualifications section should distinguish between essential and preferred qualifications to avoid deterring qualified candidates.',
+            'name': 'Technical Skills',
+            'key': 'technical_skills',
+            'weight': job_desc['emphasis'].get('technical_skills_weight', 50),
+            'description': 'Assign points for each required and optional skill, considering proficiency level.',
             'factors': [
-                'Separate lists for mandatory and preferred qualifications',
-                'Realistic experience and education requirements',
-                'Justification for any stringent requirements'
+                'Proficiency in required technical skills',
+                'Proficiency in optional technical skills',
+                'Transferable skills and learning ability',
+                'Keywords matched in resume'
             ]
         },
         {
-            'name': 'Opportunities for Growth and Development',
-            'key': 'growth_opportunities',
-            'weight': 10,
-            'description': 'The job description should mention any opportunities for career advancement, professional development, or training.',
+            'name': 'Certifications',
+            'key': 'certifications',
+            'weight': job_desc['emphasis'].get('certifications_weight', 5),
+            'description': 'Assign points for each relevant certification.',
             'factors': [
-                'Information on potential career paths within the company',
-                'Availability of training programs or educational assistance',
-                'Mentorship or leadership development opportunities'
+                'Possession of preferred certifications',
+                'Equivalent practical experience',
+                'Self-learning projects demonstrating expertise'
             ]
         },
         {
-            'name': 'Compensation and Benefits Transparency',
-            'key': 'compensation_transparency',
-            'weight': 10,
-            'description': 'Providing information on compensation ranges and benefits can attract candidates aligned with what the company offers.',
+            'name': 'Soft Skills',
+            'key': 'soft_skills',
+            'weight': job_desc['emphasis'].get('soft_skills_weight', 20),
+            'description': 'Assign points for each soft skill demonstrated through examples or achievements.',
             'factors': [
-                'Inclusion of salary range or compensation package details',
-                'Highlighting key benefits (e.g., health insurance, retirement plans)',
-                'Mention of unique perks (e.g., remote work options, flexible hours)'
+                'Demonstrated soft skills in resume',
+                'Examples of teamwork, leadership, problem-solving, etc.'
             ]
         },
         {
-            'name': 'Search Engine Optimization (SEO)',
-            'key': 'seo',
-            'weight': 5,
-            'description': 'The job description should be optimized with relevant keywords to improve visibility in job searches.',
+            'name': 'Location',
+            'key': 'location',
+            'weight': job_desc['emphasis'].get('location_weight', 50),
+            'description': 'Assign points based on the candidate\'s location relative to the job requirements.',
             'factors': [
-                'Use of industry-standard job titles',
-                'Inclusion of relevant keywords and phrases'
-            ]
-        },
-        {
-            'name': 'Legal Compliance',
-            'key': 'legal_compliance',
-            'weight': 5,
-            'description': 'Ensure the job description complies with employment laws and regulations.',
-            'factors': [
-                'Compliance with labor laws',
-                'Non-discriminatory language',
-                'Properly stated equal opportunity statements'
+                'Country match with job location',
+                'City match with job location',
+                'Willingness to relocate (if mentioned)'
             ]
         }
     ]
-
     scores = {}
     total_weight = sum(criterion['weight'] for criterion in criteria)
     total_score = 0
@@ -362,6 +355,14 @@ def rank_job_description(job_desc, client=None):
         """
 
         response = talk_fast(prompt, client=client)
+        if criterion['score'] < 10 and criterion['weight'] >= 20:
+            if criterion['weight'] >= 40:
+                red_flags['🚩'].append(criterion['name'])
+            elif criterion['weight'] >= 30:
+                red_flags['📍'].append(criterion['name'])
+            else:
+                red_flags['⛳'].append(criterion['name'])
+
         try:
             if isinstance(response, dict) and 'content' in response and 'value' in response['content']:
                 score = response['content']['value']
@@ -378,6 +379,7 @@ def rank_job_description(job_desc, client=None):
         except Exception as e:
             logging.error(f"Unexpected error for criterion {criterion['name']}: {e}")
             criterion['score'] = 0
+
 
         scores[criterion['key']] = criterion['score']
         weighted_score = (criterion['score'] * criterion['weight']) / 100
@@ -601,6 +603,10 @@ def extract_job_requirements(job_desc, client=None):
       "certifications_preferred": [list of strings],
       "soft_skills": [list of strings],
       "keywords_to_match": [list of strings],
+      "location": {{
+        "country": string,
+        "city": string
+      }},
       "emphasis": {{
         "technical_skills_weight": integer,
         "soft_skills_weight": integer,
@@ -625,9 +631,6 @@ def extract_job_requirements(job_desc, client=None):
         logging.error(f"Error parsing job requirements: {str(e)}")
         logging.error(f"Response: {response}")
         return None
-
-import sys  # Make sure this import is at the top of your file
-import argparse
 
 def match_resume_to_job(resume_text, job_desc, file_path, resume_images, client=None):
     # Extract job requirements and wait for completion
@@ -679,7 +682,7 @@ def match_resume_to_job(resume_text, job_desc, file_path, resume_images, client=
         {
             'name': 'Technical Skills',
             'key': 'technical_skills',
-            'weight': job_requirements['emphasis'].get('technical_skills_weight', 40),
+            'weight': job_requirements['emphasis'].get('technical_skills_weight', 50),
             'description': 'Assign points for each required and optional skill, considering proficiency level.',
             'factors': [
                 'Proficiency in required technical skills',
@@ -708,15 +711,31 @@ def match_resume_to_job(resume_text, job_desc, file_path, resume_images, client=
                 'Demonstrated soft skills in resume',
                 'Examples of teamwork, leadership, problem-solving, etc.'
             ]
+        },
+        {
+            'name': 'Location',
+            'key': 'location',
+            'weight': job_requirements['emphasis'].get('location_weight', 50),
+            'description': 'Assign points based on the candidate\'s location relative to the job requirements.',
+            'factors': [
+                'Country match with job location',
+                'City match with job location',
+                'Willingness to relocate (if mentioned)'
+            ]
         }
     ]
 
     scores = {}
     total_weight = sum(criterion['weight'] for criterion in criteria)
+    red_flags = {
+        '🚩': [],
+        '📍': [],
+        '⛳': []
+    }
     
     if total_weight == 0:
         logging.error("Total weight of criteria is zero")
-        return {'score': 0, 'match_reasons': "Error: Invalid criteria weights", 'website': ''}
+        return {'score': 0, 'match_reasons': "Error: Invalid criteria weights", 'website': '', 'red_flags': []}
 
     total_score = 0
 
@@ -732,6 +751,12 @@ def match_resume_to_job(resume_text, job_desc, file_path, resume_images, client=
 
         Job Requirements:
         {json.dumps(job_requirements, indent=2)}
+
+        Pay special attention to negative selection: score criterion as 0 if total miss. Example: 
+            Criteria: Location
+            Job description: "No candidates from North Korea."
+            Resume: "Location: Pyongyang"
+            Score: 0
 
         Resume:
         {resume_text}
@@ -749,6 +774,13 @@ def match_resume_to_job(resume_text, job_desc, file_path, resume_images, client=
             
             if 0 <= score <= 100:
                 criterion['score'] = score
+                if score < 10:
+                    if criterion['weight'] >= 30:
+                        red_flags['🚩'].append(criterion['name'])
+                    elif criterion['weight'] >= 20:
+                        red_flags['📍'].append(criterion['name'])
+                    else:
+                        red_flags['⛳'].append(criterion['name'])
             else:
                 raise ValueError("Score out of range")
         except ValueError as ve:
@@ -838,7 +870,7 @@ def match_resume_to_job(resume_text, job_desc, file_path, resume_images, client=
         email_body = ''
         email_subject = ''
 
-    return {'score': final_score, 'match_reasons': match_reasons, 'website': website}
+    return {'score': final_score, 'match_reasons': match_reasons, 'website': website, 'red_flags': red_flags}
 
 def get_score_details(score):
     if not isinstance(score, int):
@@ -922,7 +954,7 @@ Format: Email / Phone / Country / City
 | **Email**  | Professional email address (e.g., name@example.com).               | Standard email format          | Use a professional email; avoid unprofessional addresses. |
 | **Phone**  | Primary contact number, including country code if applicable.      | Include country code if applicable | Provide a reliable contact number.                  |
 | **Country**| Full country name of current residence.                            | Full country name              | Specify for relocation considerations.             |
-| **City**   | Full city name of current residence.                               | Full city name                 | Indicates proximity to job location.               |
+| **City**   | Full city name of current residence if available.                          | Full city name                 | Indicates proximity to job location.               |
 
 ## Summary
 
@@ -1178,10 +1210,10 @@ def worker(args):
         unified_resume, resume_images = unify_format(extracted_data, font_styles, generate_pdf)
         
         if not unified_resume:
-            return (os.path.basename(file), 0, "🔴", "red", "Error: Failed to unify resume format", "", "")
+            return (os.path.basename(file), 0, "🔴", "red", "Error: Failed to unify resume format", "", "", [])
         
         result = match_resume_to_job(unified_resume, job_desc, file, resume_images)
-        
+         
         # Use json5 to parse the result
         if isinstance(result, str):
             result = json5.loads(result)
@@ -1189,6 +1221,7 @@ def worker(args):
         score = result.get('score', 0)
         match_reasons = result.get('match_reasons', '')
         website = result.get('website', '')
+        red_flags = result.get('red_flags', [])
         
         # Check if the website is accessible
         if website:
@@ -1218,25 +1251,62 @@ def worker(args):
                     logging.error(f"Error fetching website content for {file}: {str(e)}")
         
         emoji, color, label = get_score_details(score)
-        return (os.path.basename(file), score, emoji, color, label, match_reasons, website)
+        return (os.path.basename(file), score, emoji, color, label, match_reasons, website, red_flags)
     except json.JSONDecodeError as je:
         error_msg = f"JSON Decode Error: {str(je)}"
         logging.error(f"Error processing {file}: {error_msg}")
-        return (os.path.basename(file), 0, "🔴", "red", error_msg, "", "")
+        return (os.path.basename(file), 0, "🔴", "red", error_msg, "", "", [])
     except Exception as e:
         error_msg = f"Unexpected Error: {str(e)}"
         logging.error(f"Error processing {file}: {error_msg}")
-        return (os.path.basename(file), 0, "🔴", "red", error_msg, "", "")
+        return (os.path.basename(file), 0, "🔴", "red", error_msg, "", "", [])
 
 def process_resumes(job_desc, pdf_files, font_styles, generate_pdf):
-    with Pool(processes=cpu_count()) as pool:
-        results = list(tqdm(pool.imap(worker, [(file, job_desc, font_styles, generate_pdf) for file in pdf_files]), total=len(pdf_files), desc=f"Processing {len(pdf_files)} resumes"))
+    results = []
+    with tqdm(total=len(pdf_files), desc="Processing resumes", unit="file", ncols=None, bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}{postfix}]') as pbar:
+        for file in pdf_files:
+            try:
+                basename = os.path.basename(file)[:20]  # Truncate to 20 chars for compactness
+                
+                pbar.set_postfix_str(f"Extracting: {basename}")
+                extracted_data = extract_text_and_image_from_pdf(file)
+                
+                pbar.set_postfix_str(f"Unifying: {basename}")
+                unified_resume, resume_images = unify_format(extracted_data, font_styles, generate_pdf)
+                
+                if not unified_resume:
+                    results.append((basename, 0, "🔴", "red", "Error: Failed to unify resume format", "", "", []))
+                    pbar.update(1)
+                    continue
+                
+                pbar.set_postfix_str(f"Matching: {basename}")
+                result = match_resume_to_job(unified_resume, job_desc, file, resume_images)
+                
+                results.append(process_result(basename, result))
+                pbar.update(1)
+            except Exception as e:
+                pbar.write(f"Error processing {basename}: {str(e)}")
+                results.append((basename, 0, "🔴", "red", f"Error: {str(e)}", "", "", []))
+                pbar.update(1)
     return results
+
+def process_result(basename, result):
+    if isinstance(result, str):
+        result = json5.loads(result)
+    
+    score = result.get('score', 0)
+    match_reasons = result.get('match_reasons', '')
+    website = result.get('website', '')
+    red_flags = result.get('red_flags', {})
+    
+    emoji, color, label = get_score_details(score)
+    
+    return (basename, score, emoji, color, label, match_reasons, website, red_flags)
 
 def analyze_overall_matches(job_desc, results):
     # Prepare data for analysis
     match_data = []
-    for filename, score, _, _, _, match_reasons, _ in results:
+    for filename, score, _, _, _, match_reasons, _, _ in results:  # Add one more underscore
         match_data.append({
             "filename": filename,
             "score": score,
@@ -1309,8 +1379,15 @@ def main():
         'mono': args.mono
     }
 
+    print("Initializing resume matcher...", end='\r')
+    sys.stdout.flush()
+
+    print("Choosing API...", end='\r')
+    sys.stdout.flush()
     choose_api()
     
+    print("Reading job description...", end='\r')
+    sys.stdout.flush()
     # Ensure the job description file exists
     while not os.path.exists(args.job_desc_file):
         print(f"File not found: {args.job_desc_file}")
@@ -1320,10 +1397,14 @@ def main():
     with open(args.job_desc_file, 'r') as file:
         job_desc = file.read().strip()
 
+    print("Analyzing job description...", end='\r')
+    sys.stdout.flush()
     # Prompt user for job description analysis
     analyze_job_desc = input("Would you like to analyze and improve the job description? (y/N): ").lower().strip() == 'y'
 
     if analyze_job_desc:
+        print("Ranking job description...", end='\r')
+        sys.stdout.flush()
         # Rank job description
         job_desc_ranking = rank_job_description(job_desc)
 
@@ -1337,6 +1418,8 @@ def main():
             for tip in job_desc_ranking['improvement_tips']:
                 print(colored(f"• {tip}", 'green'))
 
+            print("Improving job description...", end='\r')
+            sys.stdout.flush()
             # Improve job description
             improved_job_desc = improve_job_description(job_desc, job_desc_ranking)
             
@@ -1347,6 +1430,8 @@ def main():
             else:
                 print(colored("\nFailed to enhance job description", 'red'))
 
+    print("Gathering PDF files...", end='\r')
+    sys.stdout.flush()
     # Get all PDF files in the specified folder
     pdf_files = glob(os.path.join(args.pdf_folder, "*.pdf"))
 
@@ -1354,8 +1439,8 @@ def main():
         print(f"No PDF files found in {args.pdf_folder}")
         sys.exit(1)
 
-    logging.info(f"Found {len(pdf_files)} PDF files in {args.pdf_folder}")
-    logging.info("Starting resume processing...")
+    print(f"Found {len(pdf_files)} PDF files. Starting processing...", end='\r')
+    sys.stdout.flush()
 
     results = process_resumes(job_desc, pdf_files, font_styles, args.pdf)
     sorted_results = sorted(results, key=lambda x: x[1], reverse=True)
@@ -1366,9 +1451,11 @@ def main():
     processed_count = 0
     error_count = 0
 
-    max_filename_length = max(len(filename) for filename, _, _, _, _, _, _ in sorted_results)
+    max_filename_length = max(len(filename) for filename, _, _, _, _, _, _, _ in sorted_results)
 
-    for i, (filename, score, emoji, color, label, match_reasons, website) in enumerate(sorted_results):
+    emojis_used = set()  # Keep track of used emojis
+
+    for i, (filename, score, emoji, color, label, match_reasons, website, red_flags) in enumerate(sorted_results):
         if emoji == "🔴":
             result_line = f"{emoji} \033[1m{filename:<{max_filename_length}}\033[0m: {label}"
             error_count += 1
@@ -1383,6 +1470,11 @@ def main():
         
         print(colored(result_line, color))
         
+        if isinstance(red_flags, dict) and any(red_flags.values()):
+            for emoji, flags in red_flags.items():
+                if flags:
+                    print(colored(f"  {emoji} {', '.join(flags)}", 'red'))
+        
         if score > 80 and match_reasons:
             print(colored(f"→ {match_reasons}", 'cyan'))
 
@@ -1390,7 +1482,7 @@ def main():
         avg_score = total_score / processed_count
 
         # Collect all scores
-        scores = [score for _, score, _, _, _, _, _ in sorted_results]
+        scores = [score for _, score, _, _, _, _, _, _ in sorted_results]
 
         # Calculate median score
         median_score = statistics.median(scores)
@@ -1407,7 +1499,7 @@ def main():
 
         # Distribution of labels
         label_counts = {}
-        for _, _, _, _, label, _, _ in sorted_results:
+        for _, _, _, _, label, _, _, _ in sorted_results:
             label_counts[label] = label_counts.get(label, 0) + 1
 
         # Existing summary
@@ -1427,7 +1519,7 @@ def main():
         print("\n\033[1mCandidates Distribution\033[0m")
         sorted_distribution = sorted(label_counts.items(), key=lambda x: x[1], reverse=True)
         for label, count in sorted_distribution:
-            emoji = next((e for _, _, e, _, l, _, _ in sorted_results if l == label), "")
+            emoji = next((e for _, _, e, _, l, _, _, _ in sorted_results if l == label), "")
             print(colored(f"{emoji} {label}: {count}", 'yellow'))
 
         # Analyze overall matches
