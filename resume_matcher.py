@@ -142,7 +142,7 @@ class AIResponse(BaseModel):
     content: Union[Score, Reasons, URL, Email]
 
 
-def talk_fast(messages, model="gpt-4o-mini", max_tokens=1000, client=None, image_data=None):
+def talk_fast(messages, model="gpt-4o-mini-2024-07-18", max_tokens=1000, client=None, image_data=None):
     import tiktoken  # Ensure this package is installed: pip install tiktoken
 
     if client is None:
@@ -183,17 +183,16 @@ def talk_fast(messages, model="gpt-4o-mini", max_tokens=1000, client=None, image
             content_text += item['text']
     input_tokens = len(encoding.encode(content_text))
 
-    # Define the model's context window
-    model_context_windows = {
-        "gpt-4": 8192,
-        "gpt-4o-mini": 4096  # Adjust according to the actual context window
-    }
-    context_window = model_context_windows.get(model, 4096)
-
     # Set default max_tokens if not provided
     if max_tokens is None:
         max_tokens = 1000  # Default value
 
+    # Define the model's context window
+    model_context_windows = {
+        "gpt-4o-mini-2024-07-18": 128000
+    }
+
+    context_window = model_context_windows.get(model, 128000)
     # Ensure total tokens do not exceed context window
     if input_tokens + max_tokens > context_window:
         max_tokens = context_window - input_tokens - 1  # Reserve 1 token for safety
@@ -329,7 +328,8 @@ def rank_job_description(job_desc, client=None):
             'factors': [
                 'Country match with job location',
                 'City match with job location',
-                'Willingness to relocate (if mentioned)'
+                'Willingness to relocate (if mentioned)',
+                '0 if specifically requirements prohibit specific locations'
             ]
         }
     ]
