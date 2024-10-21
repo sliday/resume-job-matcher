@@ -17,17 +17,64 @@ import argparse
 # Initialize logging with more detailed format
 logging.basicConfig(level=logging.CRITICAL, format='%(asctime)s - %(levelname)s - %(message)s')
 
+import os
+from dotenv import load_dotenv
+load_dotenv()
+
+ANTHROPIC_MODEL = os.getenv('ANTHROPIC_MODEL')
+OPENAI_MODEL = os.getenv('OPENAI_MODEL')
+OPENAI_FAST_MODEL = os.getenv('OPENAI_FAST_MODEL')
+DEFAULT_MAX_TOKENS = int(os.getenv('DEFAULT_MAX_TOKENS'))
+GPT_4O_CONTEXT_WINDOW = int(os.getenv('GPT_4O_CONTEXT_WINDOW'))
+
+clients = {
+    "anthropic": anthropic.Anthropic(api_key=os.getenv("CLAUDE_API_KEY")),
+    "openai": openai.OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
+}
+
 # Initialize the Anthropic client globally
 default_anthropic_client = anthropic.Anthropic(api_key=os.environ.get("CLAUDE_API_KEY"))
 
 # Initialize the OpenAI client globally
-default_openai_client = openai.OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+default_openai_client = openai.OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
 
 # Global variable to store the chosen API
 chosen_api = "anthropic"
 
-import os
 from termcolor import colored
+
+
+class BaseMessage:
+    def __init__(self, text=None, image_data=None):
+        self.content = []
+
+        if text:
+            self.add_text(text)
+
+        if image_data:
+            self.add_image(image_data)
+
+    def add_text(self, text):
+        """Adds a text message to the content."""
+        self.content.append({
+            "type": "text",
+            "text": text
+        })
+
+    def add_image(self, image_data):
+        """Adds an image in base64 encoding to the content."""
+        base64_image = base64.b64encode(image_data).decode('utf-8')
+        self.content.append({
+            "type": "image_url",
+            "image_url": {
+                "url": f"data:image/jpeg;base64,{base64_image}"
+            }
+        })
+
+    def get_message(self):
+        """Returns the formatted message content."""
+        return self.content
+
 
 def choose_api():
     global chosen_api
@@ -41,26 +88,32 @@ def choose_api():
     
     print(colored(f"\nSelected API: {chosen_api.capitalize()}", "green", attrs=["bold"]))
 
-def talk_to_ai(prompt, max_tokens=1000, image_data=None, client=None):
+def talk_to_ai(prompt,
+               max_tokens=DEFAULT_MAX_TOKENS,
+               image_data=None,
+               client=None):
     global chosen_api
-    
+
     try:
         if chosen_api == "anthropic":
             response = talk_to_anthropic(prompt, max_tokens, image_data, client)
         else:
             response = talk_to_openai(prompt, max_tokens, image_data, client)
-        
+
         return response.strip() if response else ""
     except Exception as e:
         logging.error(f"Error in talk_to_ai: {str(e)}")
         return ""
 
-def talk_to_anthropic(prompt, max_tokens=1000, image_data=None, client=None):
+def talk_to_anthropic(prompt,
+                      max_tokens=DEFAULT_MAX_TOKENS,
+                      image_data=None,
+                      client=None):
     if client is None:
-        client = default_anthropic_client
-    
+        client = clients['anthropic']
+
     messages = [{"role": "user", "content": [{"type": "text", "text": prompt}]}]
-    
+
     if image_data:
         for img in image_data:
             base64_image = base64.b64encode(img).decode('utf-8')
@@ -72,10 +125,10 @@ def talk_to_anthropic(prompt, max_tokens=1000, image_data=None, client=None):
                     "data": base64_image
                 }
             })
-    
+
     try:
         response = client.messages.create(
-            model="claude-3-5-sonnet-20240620",
+            model=ANTHROPIC_MODEL,  # Use model from environment variable
             max_tokens=max_tokens,
             messages=messages
         )
@@ -84,29 +137,23 @@ def talk_to_anthropic(prompt, max_tokens=1000, image_data=None, client=None):
         logging.error(f"Error in Anthropic AI communication: {str(e)}")
         return ""
 
-def talk_to_openai(prompt, max_tokens=1000, image_data=None, client=None):
+def talk_to_openai(prompt,
+                   max_tokens=DEFAULT_MAX_TOKENS,
+                   image_data=None,
+                   client=None):
     if client is None:
         client = default_openai_client
-    
-    messages = [{"role": "user", "content": [{"type": "text", "text": prompt}]}]
-    
-    if image_data:
-        model = "gpt-4o"
-        for img in image_data:
-            base64_image = base64.b64encode(img).decode('utf-8')
-            messages[0]["content"].append({
-                "type": "image_url",
-                "image_url": {
-                    "url": f"data:image/jpeg;base64,{base64_image}"
-                }
-            })
-    else:
-        model = "gpt-4o"
-    
+
+    message = BaseMessage(text=prompt, image_data=image_data[0] if image_data else None)
+
+    if image_data and len(image_data) > 1:
+        for img in image_data[1:]:
+            message.add_image(img)
+
     try:
         response = client.chat.completions.create(
-            model=model,
-            messages=messages,
+            model=OPENAI_MODEL,
+            messages=[{"role": "user", "content": message.get_message()}],
             max_tokens=max_tokens
         )
         return response.choices[0].message.content.strip()
@@ -142,109 +189,48 @@ class AIResponse(BaseModel):
     content: Union[Score, Reasons, URL, Email]
 
 
-def talk_fast(messages, model="gpt-4o-mini-2024-07-18", max_tokens=1000, client=None, image_data=None):
+def talk_fast(messages,
+              model=OPENAI_FAST_MODEL,
+              max_tokens=DEFAULT_MAX_TOKENS,
+              client=None,
+              image_data=None):
     import tiktoken  # Ensure this package is installed: pip install tiktoken
 
     if client is None:
-        client = default_openai_client
-    
-    content = []
-    if isinstance(messages, str):
-        content.append({"type": "text", "text": messages})
-    elif isinstance(messages, list):
-        content.extend(messages)
-    else:
-        raise ValueError("Messages should be a string or a list of message objects")
+        client = clients['openai']
 
-    if image_data:
-        if isinstance(image_data, list):
-            for img in image_data:
-                base64_image = base64.b64encode(img).decode('utf-8')
-                content.append({
-                    "type": "image",
-                    "image_url": {
-                        "url": f"data:image/jpeg;base64,{base64_image}"
-                    }
-                })
-        else:
-            base64_image = base64.b64encode(image_data).decode('utf-8')
-            content.append({
-                "type": "image",
-                "image_url": {
-                    "url": f"data:image/jpeg;base64,{base64_image}"
-                }
-            })
+    message = BaseMessage(text=messages, image_data=image_data[0] if image_data else None)
+
+    if image_data and len(image_data) > 1:
+        for img in image_data[1:]:
+            message.add_image(img)
 
     # Estimate token count
     encoding = tiktoken.encoding_for_model(model)
     content_text = ''
-    for item in content:
+    for item in message.get_message():
         if item['type'] == 'text':
             content_text += item['text']
     input_tokens = len(encoding.encode(content_text))
 
-    # Set default max_tokens if not provided
-    if max_tokens is None:
-        max_tokens = 1000  # Default value
-
-    # Define the model's context window
-    model_context_windows = {
-        "gpt-4o-mini-2024-07-18": 128000
-    }
-
-    context_window = model_context_windows.get(model, 128000)
     # Ensure total tokens do not exceed context window
+    context_window = GPT_4O_CONTEXT_WINDOW
     if input_tokens + max_tokens > context_window:
         max_tokens = context_window - input_tokens - 1  # Reserve 1 token for safety
 
-        # Ensure max_tokens is positive
         if max_tokens <= 0:
             logging.error("Input text is too long for the model to process.")
             return None  # Or handle as needed
 
     try:
-        logging.debug(f"Sending request to OpenAI API with model: {model}")
         response = client.chat.completions.create(
             model=model,
-            messages=[{"role": "user", "content": content}],
-            max_tokens=max_tokens,
-            response_format={"type": "json_object"},
-            tools=[{
-                "type": "function",
-                "function": {
-                    "name": "AIResponse",
-                    "parameters": AIResponse.model_json_schema()
-                }
-            }]
+            messages=[{"role": "user", "content": message.get_message()}],
+            max_tokens=max_tokens
         )
-        logging.debug(f"Received response from OpenAI API: {response}")
-        
-        if response.choices and response.choices[0].message:
-            if response.choices[0].message.content:
-                result = response.choices[0].message.content.strip()
-            elif response.choices[0].message.tool_calls:
-                # Handle tool calls (function calls)
-                tool_call = response.choices[0].message.tool_calls[0]
-                result = tool_call.function.arguments
-            else:
-                raise ValueError("Unexpected response format")
-            
-            logging.debug(f"Extracted content from OpenAI response: {result}")
-            try:
-                parsed_result = json5.loads(result)
-                return parsed_result
-            except json.JSONDecodeError as e:
-                logging.error(f"Error parsing JSON response: {str(e)}")
-                return None
-        else:
-            logging.error("Empty or invalid response from OpenAI API")
-            logging.debug(f"Full response object: {response}")
-            return None
+        return response.choices[0].message.content.strip()
     except Exception as e:
-        error_message = str(e)
-        if hasattr(e, 'response'):
-            error_message += f"\nResponse content: {e.response.text}"
-        logging.error(f"Error in talk_fast: {error_message}")
+        logging.error(f"Error in talk_fast: {str(e)}")
         return None
 
 red_flags = {
