@@ -342,10 +342,9 @@ def rank_job_description(job_desc, client=None):
 
         # Initialize 'score' to 0 before accessing it
         criterion['score'] = 0
-        
-        print(f"\nDebug - Evaluating {criterion['name']}...")
+
         response = talk_fast(prompt, client=client)
-        print(f"Debug - Raw response: {response}")
+        
         if criterion['score'] < 10 and criterion['weight'] >= 20:
             if criterion['weight'] >= 40:
                 red_flags['🚩'].append(criterion['name'])
@@ -361,10 +360,7 @@ def rank_job_description(job_desc, client=None):
             weighted_score = (score * criterion['weight']) / 100
             total_score += weighted_score
             
-            print(f"Debug - Parsed score: {score}")
-            
         except Exception as e:
-            print(f"Debug - Error parsing score: {str(e)}")
             criterion['score'] = 0
             scores[criterion['key']] = 0
 
@@ -571,9 +567,6 @@ def assess_resume_quality(resume_images, client=None):
     return overall_score
 
 def extract_job_requirements(job_desc, client=None):
-    # Add debug print
-    print("\nDebug - Job Description Input:")
-    print(job_desc[:200] + "...")  # Print first 200 chars
     prompt = f"""
     Extract the key requirements from the following job description.
 
