@@ -340,7 +340,11 @@ def rank_job_description(job_desc, client=None):
         Only return the integer score, nothing else.
         """
 
+        # Initialize 'score' to 0 before accessing it
+        criterion['score'] = 0
+
         response = talk_fast(prompt, client=client)
+        
         if criterion['score'] < 10 and criterion['weight'] >= 20:
             if criterion['weight'] >= 40:
                 red_flags['🚩'].append(criterion['name'])
@@ -350,26 +354,15 @@ def rank_job_description(job_desc, client=None):
                 red_flags['⛳'].append(criterion['name'])
 
         try:
-            if isinstance(response, dict) and 'content' in response and 'value' in response['content']:
-                score = response['content']['value']
-            else:
-                raise ValueError("Unexpected response format")
+            score = int(str(response).strip())
+            criterion['score'] = score
+            scores[criterion['key']] = score
+            weighted_score = (score * criterion['weight']) / 100
+            total_score += weighted_score
             
-            if 0 <= score <= 100:
-                criterion['score'] = score
-            else:
-                raise ValueError("Score out of range")
-        except ValueError as ve:
-            logging.error(f"Error parsing score for criterion {criterion['name']}: {ve}")
-            criterion['score'] = 0
         except Exception as e:
-            logging.error(f"Unexpected error for criterion {criterion['name']}: {e}")
             criterion['score'] = 0
-
-
-        scores[criterion['key']] = criterion['score']
-        weighted_score = (criterion['score'] * criterion['weight']) / 100
-        total_score += weighted_score
+            scores[criterion['key']] = 0
 
     overall_score = int((total_score / total_weight) * 100)  # Normalize to 0-100 scale
 
@@ -1434,8 +1427,15 @@ def main():
     if analyze_job_desc:
         print("Ranking job description...", end='\r')
         sys.stdout.flush()
+
+        # First extract requirements including weights
+        job_requirements = extract_job_requirements(job_desc)
+        if not job_requirements:
+            print(colored("Failed to extract job requirements", 'red'))
+            sys.exit(1)
+
         # Rank job description
-        job_desc_ranking = rank_job_description(job_desc)
+        job_desc_ranking = rank_job_description(job_requirements)
 
         if job_desc_ranking:
             print("\n\033[1mJob Description Ranking\033[0m")
