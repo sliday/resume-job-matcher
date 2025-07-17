@@ -597,7 +597,7 @@ def extract_job_requirements(job_desc, client=None):
     }}
 
     Only output valid JSON. 
-    You can only speak JSON. You can only output valid JSON. Strictly No explanation, no comments, no intro. No \`\`\`json\`\`\` wrapper.
+    You can only speak JSON. You can only output valid JSON. Strictly No explanation, no comments, no intro. No ```json``` wrapper.
     """
     response = talk_to_ai(prompt, max_tokens=2000, client=client)
     try:
@@ -741,7 +741,7 @@ def match_resume_to_job(resume_text, job_desc, file_path, resume_images, client=
         {resume_text}
 
         Provide your evaluation as an integer score from 0 to 100, where 0 is the lowest and 100 is the highest.
-        Only return the integer score, nothing else. No explanation, no comments, no intro. No \`\`\`json\`\`\` wrapper.
+        Only return the integer score, nothing else. No explanation, no comments, no intro. No ```json``` wrapper.
         """
 
         response = talk_fast(prompt, client=client)
@@ -788,7 +788,7 @@ def match_resume_to_job(resume_text, job_desc, file_path, resume_images, client=
 
     Provide the reasons in telegraphic English, max 10 words per reason, separated by ' | '.
 
-    Only output the reasons as a single string. No explanation, no comments, no intro. No \`\`\`json\`\`\` wrapper.
+    Only output the reasons as a single string. No explanation, no comments, no intro. No ```json``` wrapper.
     """
     reasons_response = talk_fast(reasons_prompt, max_tokens=100, client=client)
     
@@ -807,7 +807,7 @@ def match_resume_to_job(resume_text, job_desc, file_path, resume_images, client=
     {resume_text}
 
     Only output the URL or an empty string.
-    You can only speak URL. You can only output valid URL. Strictly No explanation, no comments, no intro. No \`\`\`json\`\`\` wrapper.
+    You can only speak URL. You can only output valid URL. Strictly No explanation, no comments, no intro. No ```json``` wrapper.
     """
     website_response = talk_fast(website_prompt, max_tokens=150, client=client)
     
@@ -831,7 +831,7 @@ def match_resume_to_job(resume_text, job_desc, file_path, resume_images, client=
       "subject_response": "Email subject"
     }}
 
-    You can only speak JSON. You can only output valid JSON. Strictly No explanation, no comments, no intro. No \`\`\`json\`\`\` wrapper.
+    You can only speak JSON. You can only output valid JSON. Strictly No explanation, no comments, no intro. No ```json``` wrapper.
     """
     email_text = talk_to_ai(email_prompt, max_tokens=180, client=client)
     try:
@@ -1115,7 +1115,7 @@ To convert an original resume into the defined object model, a parser should fol
     Please structure the resume information according to the provided format. Only include sections and details that are present in the original text. Do not invent or assume any information. No more then 4000 tokens.
     No intro, no explanations, no comments. 
     Use telegraphic english with no fluff. Keep all the information, do NOT invent data.
-    No ```` or ```yaml or ```json or ```json5 or ``` or --- or any other formatting. Just clean text.
+    No code blocks or yaml or json or json5 formatting markers. Just clean text.
 You can only speak in clean, concise, Markdown format.     
     """
 
