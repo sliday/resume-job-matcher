@@ -13,6 +13,7 @@ from weasyprint import HTML
 import pdfkit
 from pathlib import Path
 import argparse
+from typing import Dict, List, Optional, Tuple, Any, Union
 
 # Initialize logging with more detailed format
 logging.basicConfig(level=logging.CRITICAL, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -21,22 +22,78 @@ import os
 from dotenv import load_dotenv
 load_dotenv()
 
+def validate_environment_variables():
+    """Validate required environment variables and fail fast with clear error messages."""
+    required_vars = {
+        'CLAUDE_API_KEY': 'Anthropic Claude API key',
+        'OPENAI_API_KEY': 'OpenAI API key',
+        'ANTHROPIC_MODEL': 'Anthropic model name',
+        'OPENAI_MODEL': 'OpenAI model name',
+        'OPENAI_FAST_MODEL': 'OpenAI fast model name',
+        'DEFAULT_MAX_TOKENS': 'Default maximum tokens',
+        'GPT_4O_CONTEXT_WINDOW': 'GPT-4 context window size'
+    }
+    
+    missing_vars = []
+    for var_name, description in required_vars.items():
+        if not os.getenv(var_name):
+            missing_vars.append(f"  {var_name}: {description}")
+    
+    if missing_vars:
+        print(colored("❌ Missing required environment variables:", "red"))
+        print("\n".join(missing_vars))
+        print(colored("\nPlease create a .env file based on .env-example", "yellow"))
+        sys.exit(1)
+
+validate_environment_variables()
+
 ANTHROPIC_MODEL = os.getenv('ANTHROPIC_MODEL')
 OPENAI_MODEL = os.getenv('OPENAI_MODEL')
 OPENAI_FAST_MODEL = os.getenv('OPENAI_FAST_MODEL')
 DEFAULT_MAX_TOKENS = int(os.getenv('DEFAULT_MAX_TOKENS'))
 GPT_4O_CONTEXT_WINDOW = int(os.getenv('GPT_4O_CONTEXT_WINDOW'))
 
+# Constants
+SCORE_THRESHOLDS = {
+    'HIGH_SCORE': 90,
+    'GOOD_SCORE': 80,
+    'WEBSITE_PENALTY': 25,
+    'RED_FLAG_THRESHOLD': 10,
+    'RED_FLAG_WEIGHT_HIGH': 30,
+    'RED_FLAG_WEIGHT_MEDIUM': 20
+}
+
+TIMEOUTS = {
+    'WEBSITE_CHECK': 5,
+    'WEBSITE_FETCH': 5,
+    'DEFAULT_REQUEST': 10
+}
+
+QUALITY_SETTINGS = {
+    'IMAGE_QUALITY': 51,
+    'MIN_TEXT_LENGTH': 500,
+    'MAX_FILENAME_LENGTH': 50,
+    'MAX_IMPROVEMENT_TIPS': 5,
+    'MAX_SCORE_RANGE': 100,
+    'MIN_SCORE_RANGE': 0
+}
+
+WEIGHT_DEFAULTS = {
+    'LANGUAGE_PROFICIENCY': 5,
+    'EDUCATION': 10,
+    'EXPERIENCE': 20,
+    'TECHNICAL_SKILLS': 50,
+    'CERTIFICATIONS': 5,
+    'SOFT_SKILLS': 20,
+    'LOCATION': 50
+}
+
 clients = {
     "anthropic": anthropic.Anthropic(api_key=os.getenv("CLAUDE_API_KEY")),
     "openai": openai.OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
 }
 
-# Initialize the Anthropic client globally
-default_anthropic_client = anthropic.Anthropic(api_key=os.environ.get("CLAUDE_API_KEY"))
-
-# Initialize the OpenAI client globally
-default_openai_client = openai.OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
+# Clients are initialized in the clients dictionary below
 
 # Global variable to store the chosen API
 chosen_api = "anthropic"
@@ -88,10 +145,10 @@ def choose_api():
     
     print(colored(f"\nSelected API: {chosen_api.capitalize()}", "green", attrs=["bold"]))
 
-def talk_to_ai(prompt,
-               max_tokens=DEFAULT_MAX_TOKENS,
-               image_data=None,
-               client=None):
+def talk_to_ai(prompt: str,
+               max_tokens: int = DEFAULT_MAX_TOKENS,
+               image_data: Optional[List[bytes]] = None,
+               client: Optional[Any] = None) -> str:
     global chosen_api
 
     try:
@@ -142,7 +199,7 @@ def talk_to_openai(prompt,
                    image_data=None,
                    client=None):
     if client is None:
-        client = default_openai_client
+        client = clients['openai']
 
     message = BaseMessage(text=prompt, image_data=image_data[0] if image_data else None)
 
@@ -402,7 +459,7 @@ def rank_job_description(job_desc, client=None):
 
     return result
 
-def extract_text_and_image_from_pdf(file_path):
+def extract_text_and_image_from_pdf(file_path: str) -> Tuple[str, List[bytes]]:
     import pytesseract
     from pdf2image import convert_from_path
     from PyPDF2 import PdfReader
@@ -424,14 +481,14 @@ def extract_text_and_image_from_pdf(file_path):
             # Convert to grayscale and compress image
             img_gray = img.convert('L')
             img_buffer = io.BytesIO()
-            img_gray.save(img_buffer, format='JPEG', quality=51)
+            img_gray.save(img_buffer, format='JPEG', quality=QUALITY_SETTINGS['IMAGE_QUALITY'])
             img_buffer.seek(0)
 
             # Add image data to resume_images list
             resume_images.append(img_buffer.getvalue())
 
             # If text extraction is insufficient, perform OCR
-            if not text or len(text.strip()) < 500:
+            if not text or len(text.strip()) < QUALITY_SETTINGS['MIN_TEXT_LENGTH']:
                 ocr_text = pytesseract.image_to_string(Image.open(img_buffer))
                 text += ocr_text + "\n"
 
@@ -611,7 +668,7 @@ def extract_job_requirements(job_desc, client=None):
         logging.error(f"Response: {response}")
         return None
 
-def match_resume_to_job(resume_text, job_desc, file_path, resume_images, client=None):
+def match_resume_to_job(resume_text: str, job_desc: str, file_path: str, resume_images: List[bytes], client: Optional[Any] = None) -> Dict[str, Any]:
     # Extract job requirements and wait for completion
     job_requirements = extract_job_requirements(job_desc, client)
     if not job_requirements:
@@ -823,7 +880,7 @@ def match_resume_to_job(resume_text, job_desc, file_path, resume_images, client=
 
     Score: {final_score}
 
-    If the score is below 90, politely reject the person. If the score is 90 or above, invite them to the next stage. Use personal details and make it personalized. Omit signature and "best regards". Friendly concise business tone.
+    If the score is below {SCORE_THRESHOLDS['HIGH_SCORE']}, politely reject the person. If the score is {SCORE_THRESHOLDS['HIGH_SCORE']} or above, invite them to the next stage. Use personal details and make it personalized. Omit signature and "best regards". Friendly concise business tone.
 
     Provide the output in the following JSON format:
     {{
@@ -851,7 +908,7 @@ def match_resume_to_job(resume_text, job_desc, file_path, resume_images, client=
 
     return {'score': final_score, 'match_reasons': match_reasons, 'website': website, 'red_flags': red_flags}
 
-def get_score_details(score):
+def get_score_details(score: int) -> Tuple[str, str, str]:
     if not isinstance(score, int):
         raise ValueError(f"Invalid score type: {type(score)}. Expected int.")
     
@@ -907,11 +964,11 @@ def get_score_details(score):
     
     return "💀", "red", "Unable to score"  # Fallback for any unexpected scores
 
-def check_website(url):
+def check_website(url: str) -> Tuple[bool, str]:
     if not url.startswith(('http://', 'https://')):
         url = 'https://' + url
     try:
-        response = requests.get(url, timeout=5)
+        response = requests.get(url, timeout=TIMEOUTS['WEBSITE_CHECK'])
         return response.status_code == 200, url
     except requests.RequestException:
         return False, url
@@ -1213,13 +1270,13 @@ def worker(args):
         if website:
             is_accessible, updated_url = check_website(website)
             if not is_accessible:
-                score = max(0, score - 25)  # Reduce score, but not below 0
+                score = max(0, score - SCORE_THRESHOLDS['WEBSITE_PENALTY'])  # Reduce score, but not below 0
                 website = f"{updated_url} (inactive)"
             else:
                 website = updated_url
                 # Fetch website content
                 try:
-                    response = requests.get(website, timeout=5)
+                    response = requests.get(website, timeout=TIMEOUTS['WEBSITE_FETCH'])
                     response.raise_for_status()
                     soup = BeautifulSoup(response.content, 'html.parser')
                     website_text = soup.get_text(separator=' ', strip=True)
@@ -1504,7 +1561,7 @@ def main():
                 if flags:
                     print(colored(f"  {emoji} {', '.join(flags)}", 'red'))
         
-        if score > 80 and match_reasons:
+        if score > SCORE_THRESHOLDS['GOOD_SCORE'] and match_reasons:
             print(colored(f"→ {match_reasons}", 'cyan'))
 
     if processed_count > 0:
@@ -1523,8 +1580,8 @@ def main():
             std_dev_score = 0.0  # Standard deviation is zero if only one score
 
         # Count resumes above certain thresholds
-        resumes_above_90 = sum(1 for s in scores if s >= 90)
-        resumes_above_80 = sum(1 for s in scores if s >= 80)
+        resumes_above_90 = sum(1 for s in scores if s >= SCORE_THRESHOLDS['HIGH_SCORE'])
+        resumes_above_80 = sum(1 for s in scores if s >= SCORE_THRESHOLDS['GOOD_SCORE'])
 
         # Distribution of labels
         label_counts = {}
