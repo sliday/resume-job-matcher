@@ -1,4 +1,4 @@
-import sys, json, json5, PyPDF2, anthropic, openai
+import sys, json, json5, PyPDF2, openai
 from openai import OpenAI, OpenAIError
 from glob import glob
 from multiprocessing import Pool, cpu_count
@@ -21,25 +21,82 @@ import os
 from dotenv import load_dotenv
 load_dotenv()
 
-ANTHROPIC_MODEL = os.getenv('ANTHROPIC_MODEL')
-OPENAI_MODEL = os.getenv('OPENAI_MODEL')
-OPENAI_FAST_MODEL = os.getenv('OPENAI_FAST_MODEL')
-DEFAULT_MAX_TOKENS = int(os.getenv('DEFAULT_MAX_TOKENS'))
-GPT_4O_CONTEXT_WINDOW = int(os.getenv('GPT_4O_CONTEXT_WINDOW'))
+# OpenRouter configuration
+OPENROUTER_API_KEY = os.getenv('OPENROUTER_API_KEY')
+DEFAULT_MODEL = os.getenv('DEFAULT_MODEL', 'openai/gpt-4o')
+FAST_MODEL = os.getenv('FAST_MODEL', 'openai/gpt-4o-mini')
+DEFAULT_MAX_TOKENS = int(os.getenv('DEFAULT_MAX_TOKENS', '4000'))
+GPT_4O_CONTEXT_WINDOW = int(os.getenv('GPT_4O_CONTEXT_WINDOW', '128000'))
 
-clients = {
-    "anthropic": anthropic.Anthropic(api_key=os.getenv("CLAUDE_API_KEY")),
-    "openai": openai.OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
+# Model mapping for easy access
+AVAILABLE_MODELS = {
+    'gpt-4': 'openai/gpt-4',
+    'gpt-4o': 'openai/gpt-4o',
+    'gpt-4o-mini': 'openai/gpt-4o-mini',
+    'claude-3-opus': 'anthropic/claude-3-opus',
+    'claude-3-sonnet': 'anthropic/claude-3.5-sonnet',
+    'claude-3-haiku': 'anthropic/claude-3-haiku',
+    'gemini-pro': 'google/gemini-pro-1.5',
+    'deepseek': 'deepseek/deepseek-chat',
 }
 
-# Initialize the Anthropic client globally
-default_anthropic_client = anthropic.Anthropic(api_key=os.environ.get("CLAUDE_API_KEY"))
+# Backward compatibility for existing environment variables
+if not OPENROUTER_API_KEY:
+    OPENROUTER_API_KEY = os.getenv('OPENAI_API_KEY') or os.getenv('CLAUDE_API_KEY')
+    if not OPENROUTER_API_KEY:
+        print("Warning: Please set OPENROUTER_API_KEY environment variable")
 
-# Initialize the OpenAI client globally
-default_openai_client = openai.OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
+# Legacy model mapping
+legacy_anthropic_model = os.getenv('ANTHROPIC_MODEL')
+legacy_openai_model = os.getenv('OPENAI_MODEL')
+legacy_openai_fast_model = os.getenv('OPENAI_FAST_MODEL')
 
-# Global variable to store the chosen API
-chosen_api = "anthropic"
+if legacy_anthropic_model and not os.getenv('DEFAULT_MODEL'):
+    if 'claude-3-opus' in legacy_anthropic_model:
+        DEFAULT_MODEL = 'anthropic/claude-3-opus'
+    elif 'claude-3-sonnet' in legacy_anthropic_model:
+        DEFAULT_MODEL = 'anthropic/claude-3.5-sonnet'
+    elif 'claude-3-haiku' in legacy_anthropic_model:
+        DEFAULT_MODEL = 'anthropic/claude-3-haiku'
+
+if legacy_openai_model and not os.getenv('DEFAULT_MODEL'):
+    if 'gpt-4' in legacy_openai_model:
+        DEFAULT_MODEL = 'openai/gpt-4'
+    elif 'gpt-4o' in legacy_openai_model:
+        DEFAULT_MODEL = 'openai/gpt-4o'
+
+if legacy_openai_fast_model and not os.getenv('FAST_MODEL'):
+    if 'gpt-4o-mini' in legacy_openai_fast_model:
+        FAST_MODEL = 'openai/gpt-4o-mini'
+    elif 'gpt-4' in legacy_openai_fast_model:
+        FAST_MODEL = 'openai/gpt-4'
+
+# Initialize the unified OpenRouter client
+default_client = openai.OpenAI(
+    base_url="https://openrouter.ai/api/v1",
+    api_key=OPENROUTER_API_KEY,
+    default_headers={
+        "HTTP-Referer": "https://github.com/sliday/resume-job-matcher",
+        "X-Title": "Resume Job Matcher",
+    }
+)
+
+# Backward compatibility - create clients dict for existing code
+clients = {
+    "openrouter": default_client,
+    "anthropic": default_client,  # All routes through OpenRouter now
+    "openai": default_client,     # All routes through OpenRouter now
+}
+
+# Keep legacy client variables for backward compatibility
+default_anthropic_client = default_client
+default_openai_client = default_client
+
+# Current model selection - global variable for chosen model
+current_model = DEFAULT_MODEL
+
+# Legacy variable for backward compatibility
+chosen_api = "openrouter"  # All APIs now go through OpenRouter
 
 from termcolor import colored
 
@@ -76,90 +133,112 @@ class BaseMessage:
         return self.content
 
 
-def choose_api():
-    global chosen_api
-    prompt = "Use OpenAI API instead of Anthropic? [y/N]: "
-    choice = input(colored(prompt, "cyan")).strip().lower()
+def choose_model():
+    global current_model
     
-    if choice in ["y", "yes"]:
-        chosen_api = "openai"
+    print(colored("\nAvailable models:", "cyan", attrs=["bold"]))
+    print(colored("OpenAI Models:", "yellow"))
+    print(colored("  1. GPT-4o (default)", "white"))
+    print(colored("  2. GPT-4o Mini (fast)", "white"))
+    print(colored("  3. GPT-4", "white"))
+    
+    print(colored("\nAnthropic Models:", "yellow"))
+    print(colored("  4. Claude 3.5 Sonnet", "white"))
+    print(colored("  5. Claude 3 Opus", "white"))
+    print(colored("  6. Claude 3 Haiku", "white"))
+    
+    print(colored("\nOther Models:", "yellow"))
+    print(colored("  7. Gemini Pro 1.5", "white"))
+    print(colored("  8. DeepSeek Chat", "white"))
+    
+    prompt = "Choose a model (1-8) or press Enter for default: "
+    choice = input(colored(prompt, "cyan")).strip()
+    
+    model_choices = {
+        "1": "openai/gpt-4o",
+        "2": "openai/gpt-4o-mini",
+        "3": "openai/gpt-4",
+        "4": "anthropic/claude-3.5-sonnet",
+        "5": "anthropic/claude-3-opus",
+        "6": "anthropic/claude-3-haiku",
+        "7": "google/gemini-pro-1.5",
+        "8": "deepseek/deepseek-chat",
+    }
+    
+    if choice in model_choices:
+        current_model = model_choices[choice]
     else:
-        chosen_api = "anthropic"
+        current_model = DEFAULT_MODEL
     
-    print(colored(f"\nSelected API: {chosen_api.capitalize()}", "green", attrs=["bold"]))
+    model_name = current_model.split("/")[-1]
+    provider = current_model.split("/")[0]
+    print(colored(f"\nSelected model: {model_name} ({provider})", "green", attrs=["bold"]))
+
+# Legacy function for backward compatibility
+def choose_api():
+    choose_model()
 
 def talk_to_ai(prompt,
                max_tokens=DEFAULT_MAX_TOKENS,
                image_data=None,
-               client=None):
-    global chosen_api
-
+               client=None,
+               model=None):
+    """Unified LLM communication function using OpenRouter API."""
+    
+    if client is None:
+        client = default_client
+    
+    if model is None:
+        model = current_model
+    
     try:
-        if chosen_api == "anthropic":
-            response = talk_to_anthropic(prompt, max_tokens, image_data, client)
-        else:
-            response = talk_to_openai(prompt, max_tokens, image_data, client)
-
-        return response.strip() if response else ""
+        # Prepare messages in OpenAI format
+        messages = [{"role": "user", "content": []}]
+        
+        # Add text content
+        messages[0]["content"].append({
+            "type": "text",
+            "text": prompt
+        })
+        
+        # Add image content if provided
+        if image_data:
+            for img in image_data:
+                base64_image = base64.b64encode(img).decode('utf-8')
+                messages[0]["content"].append({
+                    "type": "image_url",
+                    "image_url": {
+                        "url": f"data:image/jpeg;base64,{base64_image}"
+                    }
+                })
+        
+        # Make API call to OpenRouter
+        response = client.chat.completions.create(
+            model=model,
+            messages=messages,
+            max_tokens=max_tokens
+        )
+        
+        return response.choices[0].message.content.strip() if response.choices else ""
+    
     except Exception as e:
         logging.error(f"Error in talk_to_ai: {str(e)}")
         return ""
 
+# Legacy functions for backward compatibility - now route through unified API
 def talk_to_anthropic(prompt,
                       max_tokens=DEFAULT_MAX_TOKENS,
                       image_data=None,
                       client=None):
-    if client is None:
-        client = clients['anthropic']
-
-    messages = [{"role": "user", "content": [{"type": "text", "text": prompt}]}]
-
-    if image_data:
-        for img in image_data:
-            base64_image = base64.b64encode(img).decode('utf-8')
-            messages[0]["content"].append({
-                "type": "image",
-                "source": {
-                    "type": "base64",
-                    "media_type": "image/jpeg",
-                    "data": base64_image
-                }
-            })
-
-    try:
-        response = client.messages.create(
-            model=ANTHROPIC_MODEL,  # Use model from environment variable
-            max_tokens=max_tokens,
-            messages=messages
-        )
-        return response.content[0].text.strip()
-    except Exception as e:
-        logging.error(f"Error in Anthropic AI communication: {str(e)}")
-        return ""
+    """Legacy function - routes to unified OpenRouter API with Claude model."""
+    return talk_to_ai(prompt, max_tokens, image_data, client, 'anthropic/claude-3.5-sonnet')
 
 def talk_to_openai(prompt,
                    max_tokens=DEFAULT_MAX_TOKENS,
                    image_data=None,
                    client=None):
-    if client is None:
-        client = default_openai_client
-
-    message = BaseMessage(text=prompt, image_data=image_data[0] if image_data else None)
-
-    if image_data and len(image_data) > 1:
-        for img in image_data[1:]:
-            message.add_image(img)
-
-    try:
-        response = client.chat.completions.create(
-            model=OPENAI_MODEL,
-            messages=[{"role": "user", "content": message.get_message()}],
-            max_tokens=max_tokens
-        )
-        return response.choices[0].message.content.strip()
-    except Exception as e:
-        logging.error(f"Error in OpenAI communication: {str(e)}")
-        return ""
+    """Legacy function - routes to unified OpenRouter API with OpenAI model."""
+    return talk_to_ai(prompt, max_tokens, image_data, client, 'openai/gpt-4o')
 
 from pydantic import BaseModel, Field
 from typing import List, Union
@@ -190,31 +269,20 @@ class AIResponse(BaseModel):
 
 
 def talk_fast(messages,
-              model=OPENAI_FAST_MODEL,
+              model=None,
               max_tokens=DEFAULT_MAX_TOKENS,
               client=None,
               image_data=None):
-    import tiktoken  # Ensure this package is installed: pip install tiktoken
-
+    """Fast LLM communication function using OpenRouter API."""
+    
     if client is None:
-        client = clients['openai']
-
-    message = BaseMessage(text=messages, image_data=image_data[0] if image_data else None)
-
-    if image_data and len(image_data) > 1:
-        for img in image_data[1:]:
-            message.add_image(img)
-
-    # Estimate token count
-    encoding = tiktoken.encoding_for_model(model)
-    content_text = ''
-    for item in message.get_message():
-        if item['type'] == 'text':
-            content_text += item['text']
-    input_tokens = len(encoding.encode(content_text))
-
-    # Ensure total tokens do not exceed context window
-    context_window = GPT_4O_CONTEXT_WINDOW
+        client = default_client
+    
+    if model is None:
+        model = FAST_MODEL
+    
+    # Use the unified talk_to_ai function
+    return talk_to_ai(messages, max_tokens, image_data, client, model)
     if input_tokens + max_tokens > context_window:
         max_tokens = context_window - input_tokens - 1  # Reserve 1 token for safety
 

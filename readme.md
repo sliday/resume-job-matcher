@@ -2,9 +2,21 @@
 
 ## Overview
 
-**Resume Job Matcher** is a Python script that automates the process of matching resumes to a job description using AI. It leverages the Anthropic Claude API or OpenAI's GPT API to analyze resumes and provide a match score along with personalized email responses for candidates.
+**Resume Job Matcher** is a Python script that automates the process of matching resumes to a job description using AI. It leverages **OpenRouter** as a unified API gateway to access multiple LLM providers (OpenAI, Anthropic, Google, and more) to analyze resumes and provide a match score along with personalized email responses for candidates.
 
 ![Area](https://github.com/user-attachments/assets/1fee4382-7462-4463-9cb1-61704eea218b)
+
+## 🚀 Why OpenRouter?
+
+We've migrated to **OpenRouter** as our unified LLM gateway, providing significant advantages:
+
+- **🔑 Single API Key** - One key for all providers (OpenAI, Anthropic, Google, etc.)
+- **💰 Cost Optimization** - Choose models based on your budget and requirements
+- **🛡️ Reliability** - Automatic failover between providers
+- **🎯 100+ Models** - Access to latest models from multiple providers
+- **📊 Unified Billing** - Single dashboard for usage tracking and billing
+- **🔧 Easy Migration** - Full backward compatibility with existing code
+- **⚡ Performance** - Smart routing and caching for optimal speed
 
 ## Features
 
@@ -15,9 +27,10 @@
   - Command-line options for flexibility
 
 - 🧠 **Advanced AI-Powered Analysis**
-  - Resume-job comparison using Claude/GPT API
-  - Dual AI support with runtime selection
-  - Efficient model interaction
+  - Resume-job comparison using OpenRouter unified API
+  - Multi-provider support (OpenAI, Anthropic, Google, DeepSeek)
+  - Interactive model selection from 100+ available models
+  - Unified API interface with automatic failover
   - Structured data handling with Pydantic
 
 - 📊 **In-depth Evaluation & Scoring**
@@ -44,21 +57,92 @@
 
 ![CleanShot 2024-09-23 at 23 02 45@2x](https://github.com/user-attachments/assets/bc789343-839e-44bc-b3fb-df3cedf869a8)
 
+## 🔄 OpenRouter Integration
+
+The Resume Job Matcher now uses OpenRouter as a unified API gateway, providing:
+
+- **Seamless Model Switching**: Switch between GPT-4, Claude, Gemini, and other models with a single interface
+- **Cost-Effective Processing**: Use expensive models only when needed, cheaper models for bulk processing
+- **Automatic Failover**: If one provider is down, automatically switch to another
+- **Real-time Model Selection**: Choose your preferred model interactively when running the script
+
 ## Usage
 
-To run the script with the new features:
+### Quick Start
 
-```bash
-python resume_matcher.py [--sans-serif|--serif|--mono] [--pdf] [job_desc_file] [pdf_folder]
-```
+1. **Get OpenRouter API Key**:
+   - Sign up at [OpenRouter.ai](https://openrouter.ai)
+   - Get your API key from the dashboard
+   - Add credits to your account
+
+2. **Configure Environment**:
+   ```bash
+   # Copy example environment file
+   cp .env.example .env
+   
+   # Edit .env and add your OpenRouter API key
+   OPENROUTER_API_KEY=your_openrouter_api_key_here
+   ```
+
+3. **Run the Script**:
+   ```bash
+   python resume_matcher.py [--sans-serif|--serif|--mono] [--pdf] [job_desc_file] [pdf_folder]
+   ```
+
+### Command Line Options
 
 - Use `--sans-serif`, `--serif`, or `--mono` to select a font preset.
 - Use `--pdf` to generate PDF versions of unified resumes.
 - Optionally specify custom paths for the job description file and PDF folder.
 
-## Customization
+### Model Selection
 
-### Adjust Logging Level
+When you run the script, you'll see an interactive model selection menu:
+
+```
+Available models:
+OpenAI Models:
+  1. GPT-4o (default)
+  2. GPT-4o Mini (fast)
+  3. GPT-4
+
+Anthropic Models:
+  4. Claude 3.5 Sonnet
+  5. Claude 3 Opus
+  6. Claude 3 Haiku
+
+Other Models:
+  7. Gemini Pro 1.5
+  8. DeepSeek Chat
+
+Choose a model (1-8) or press Enter for default:
+```
+
+## Configuration
+
+### Environment Variables
+
+Create a `.env` file in the project root with the following variables:
+
+```bash
+# Required - OpenRouter API Key
+OPENROUTER_API_KEY=your_openrouter_api_key_here
+
+# Optional - Model Configuration
+DEFAULT_MODEL=openai/gpt-4o           # Main processing model
+FAST_MODEL=openai/gpt-4o-mini         # Quick tasks model
+DEFAULT_MAX_TOKENS=4000               # Token limit
+GPT_4O_CONTEXT_WINDOW=128000          # Context window size
+```
+
+### Available Models
+
+- **OpenAI**: `openai/gpt-4o`, `openai/gpt-4o-mini`, `openai/gpt-4`
+- **Anthropic**: `anthropic/claude-3.5-sonnet`, `anthropic/claude-3-opus`, `anthropic/claude-3-haiku`
+- **Google**: `google/gemini-pro-1.5`
+- **Other**: `deepseek/deepseek-chat`
+
+### Logging Level
 
 Modify the logging level at the beginning of the script:
 
@@ -68,41 +152,18 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 
 Available levels: `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`.
 
-### Change Scoring Model
+### Programmatic Model Selection
 
-To change the AI model used, update the `model` parameter in the `match_resume_to_job` function:
-
-```python
-message = client.messages.create(
-    model="claude-3-5-sonnet-20240620",
-    ...
-)
-```
-
-### Modify AI Provider
-
-To switch between Anthropic and OpenAI APIs, modify the `choose_api` function call at the beginning of the script:
+To set a specific model programmatically:
 
 ```python
-def choose_api():
-    global chosen_api
-    prompt = "Use OpenAI API instead of Anthropic? [y/N]: "
-    choice = input(colored(prompt, "cyan")).strip().lower()
-    
-    if choice in ["y", "yes"]:
-        chosen_api = "openai"
-    else:
-        chosen_api = "anthropic"
-```
+from resume_matcher import talk_to_ai
 
-### Adjust AI Model
-
-To change the AI model used, update the `model` parameter in the `talk_fast` function:
-
-```python
-response = client.chat.completions.create(
-    model="gpt-4o",  # Change this to the desired model
-    ...
+# Use a specific model
+response = talk_to_ai(
+    "Your prompt here",
+    model="anthropic/claude-3.5-sonnet",
+    max_tokens=1000
 )
 ```
 
@@ -133,8 +194,22 @@ Adjust the scoring logic in the `match_resume_to_job` function's prompt as neede
 
 - **No Resumes Found**: Ensure that resume PDFs are placed in the correct directory (`src` by default).
 - **Job Description Not Found**: Confirm that `job_description.txt` exists in the script's directory or provide the correct path.
-- **API Key Errors**: Verify that the `CLAUDE_API_KEY` environment variable is set correctly.
-- **Dependency Errors**: Install all required Python packages using `pip`.
+- **API Key Errors**: Verify that the `OPENROUTER_API_KEY` environment variable is set correctly.
+- **Model Access Issues**: Some models may require approval or credits in your OpenRouter account.
+- **Dependency Errors**: Install all required Python packages using `pip install -r requirements.txt`.
+
+### Testing Your Setup
+
+Run the test script to verify your configuration:
+
+```bash
+python test_openrouter.py
+```
+
+This will test:
+- API connection to OpenRouter
+- Model availability
+- Legacy function compatibility
 
 ### Adjusting Timeouts and Retries
 
@@ -147,7 +222,7 @@ response = requests.get(url, timeout=10)
 ## Best Practices
 
 - **Data Privacy**: Ensure that all candidate data is handled in compliance with relevant data protection laws and regulations.
-- **API Usage**: Be mindful of API rate limits and usage policies when using the Anthropic Claude API.
+- **API Usage**: Be mindful of API rate limits and usage policies when using OpenRouter. Monitor your usage through the OpenRouter dashboard.
 
 ## Contributing
 
@@ -159,7 +234,10 @@ We welcome contributions! Please follow these steps:
 
 ## Acknowledgments
 
-- **Anthropic Claude API**: For providing advanced AI capabilities.
+- **OpenRouter**: For providing unified access to multiple LLM providers
+- **OpenAI**: For GPT models
+- **Anthropic**: For Claude models
+- **Google**: For Gemini models
 
 ---
 
@@ -170,20 +248,32 @@ Enjoy using the Resume Job Matcher script to streamline your recruitment process
 The following Python packages are required for this project:
 
 - PyPDF2: For extracting text from PDF resumes
-- anthropic: To interact with the Anthropic Claude API for AI-powered analysis
+- openai: To interact with the OpenRouter API (OpenAI-compatible)
 - tqdm: For displaying progress bars during processing
 - termcolor: To add colored output in the console
 - json5: For parsing JSON-like data with added flexibility
 - requests: To make HTTP requests for fetching website content
 - beautifulsoup4: For parsing HTML content from personal websites
-- openai: To interact with the OpenAI API for AI-powered analysis
+- python-dotenv: For loading environment variables from .env files
 - pydantic: For data validation and settings management using Python type annotations
 
 To install these packages, you can use pip:
 
 ```bash
-pip install PyPDF2 anthropic openai tqdm termcolor json5 requests beautifulsoup4 pydantic
+pip install -r requirements.txt
 ```
+
+## Migration from Previous Versions
+
+If you're upgrading from a previous version that used separate OpenAI/Anthropic APIs:
+
+1. **Read the Migration Guide**: See `MIGRATION.md` for detailed instructions
+2. **Update Dependencies**: Run `pip install -r requirements.txt`
+3. **Get OpenRouter API Key**: Sign up at [OpenRouter.ai](https://openrouter.ai)
+4. **Update Environment**: Copy `.env.example` to `.env` and add your OpenRouter API key
+5. **Test Migration**: Run `python test_openrouter.py`
+
+The migration maintains full backward compatibility with existing code.
 
 ## Star History
 
