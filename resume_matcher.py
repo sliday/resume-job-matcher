@@ -544,21 +544,18 @@ def assess_resume_quality(resume_images, client=None):
         Provide your evaluation as an integer score from 0 to 100, where 0 is the lowest and 100 is the highest.
         Only return the integer score, nothing else.
         """
-        response = talk_fast(prompt, max_tokens=200, image_data=front_page_image, client=client)
+        response = talk_fast(prompt, max_tokens=200, image_data=[front_page_image], client=client)
+        score = 0
         try:
-            if isinstance(response, dict) and 'content' in response and 'value' in response['content']:
-                score = response['content']['value']
+            parsed_score = int(str(response).strip())
+            if 0 <= parsed_score <= 100:
+                score = parsed_score
             else:
-                raise ValueError("Unexpected response format")
-            
-            if 0 <= score <= 100:
-                scores[criterion['key']] = score
-            else:
-                raise ValueError("Score out of range")
-        except Exception as e:
-            logging.error(f"Error parsing score for criterion {criterion['name']}: {str(e)}")
-            scores[criterion['key']] = 0
+                logging.error(f"Score out of range for {criterion['name']}: {parsed_score}")
+        except (ValueError, TypeError):
+            logging.error(f"Error parsing score for criterion {criterion['name']}: {response}")
 
+        scores[criterion['key']] = score
         weighted_score = (score * criterion['weight']) / 100
         total_score += weighted_score
 
@@ -746,27 +743,20 @@ def match_resume_to_job(resume_text, job_desc, file_path, resume_images, client=
 
         response = talk_fast(prompt, client=client)
         try:
-            if isinstance(response, dict) and 'content' in response and 'value' in response['content']:
-                score = response['content']['value']
-            else:
-                raise ValueError("Unexpected response format")
-            
-            if 0 <= score <= 100:
-                criterion['score'] = score
-                if score < 10:
-                    if criterion['weight'] >= 30:
-                        red_flags['🚩'].append(criterion['name'])
-                    elif criterion['weight'] >= 20:
-                        red_flags['📍'].append(criterion['name'])
-                    else:
-                        red_flags['⛳'].append(criterion['name'])
-            else:
+            score = int(str(response).strip())
+            if not (0 <= score <= 100):
                 raise ValueError("Score out of range")
-        except ValueError as ve:
+
+            criterion['score'] = score
+            if score < 10:
+                if criterion['weight'] >= 30:
+                    red_flags['🚩'].append(criterion['name'])
+                elif criterion['weight'] >= 20:
+                    red_flags['📍'].append(criterion['name'])
+                else:
+                    red_flags['⛳'].append(criterion['name'])
+        except (ValueError, TypeError) as ve:
             logging.error(f"Error parsing score for criterion {criterion['name']}: {ve}")
-            criterion['score'] = 0
-        except Exception as e:
-            logging.error(f"Unexpected error for criterion {criterion['name']}: {e}")
             criterion['score'] = 0
 
         scores[criterion['key']] = criterion['score']
@@ -923,7 +913,7 @@ FONT_PRESETS = {
     'mono': "Courier, Courier-Bold, Courier-Oblique, Courier-BoldOblique, monospace"
 }
 
-def unify_format(extracted_data, font_styles, generate_pdf=False):
+def unify_format(extracted_data, font_styles, file_path, generate_pdf=False):
     resume_text, resume_images = extracted_data
     
     prompt = """
@@ -1125,16 +1115,9 @@ You can only speak in clean, concise, Markdown format.
     out_folder = Path('out')
     out_folder.mkdir(exist_ok=True)
     
-    # Extract the name from the first line of the unified resume
-    first_line = unified_resume.split('\n', 1)[0]
-    if first_line.lower().startswith('# '):
-        name = first_line[2:].strip()  # Remove '# ' and trim whitespace
-    else:
-        name = 'Unknown'  # Fallback if name is not found in expected format
-    
-    # Generate a filename based on the extracted name
-    safe_filename = ''.join(c for c in name if c.isalnum() or c in (' ', '.', '_')).rstrip()
-    safe_filename = safe_filename[:50]  # Limit filename length
+    # Generate a filename based on the original PDF filename
+    base_filename = os.path.splitext(os.path.basename(file_path))[0]
+    safe_filename = ''.join(c for c in base_filename if c.isalnum() or c in (' ', '.', '_')).rstrip()
     
     # Save as Markdown
     md_filename = out_folder / f"{safe_filename}_unified.md"
@@ -1189,63 +1172,6 @@ You can only speak in clean, concise, Markdown format.
     
     return unified_resume, resume_images
 
-def worker(args):
-    file, job_desc, font_styles, generate_pdf = args
-    try:
-        extracted_data = extract_text_and_image_from_pdf(file)
-        unified_resume, resume_images = unify_format(extracted_data, font_styles, generate_pdf)
-        
-        if not unified_resume:
-            return (os.path.basename(file), 0, "🔴", "red", "Error: Failed to unify resume format", "", "", [])
-        
-        result = match_resume_to_job(unified_resume, job_desc, file, resume_images)
-         
-        # Use json5 to parse the result
-        if isinstance(result, str):
-            result = json5.loads(result)
-        
-        score = result.get('score', 0)
-        match_reasons = result.get('match_reasons', '')
-        website = result.get('website', '')
-        red_flags = result.get('red_flags', [])
-        
-        # Check if the website is accessible
-        if website:
-            is_accessible, updated_url = check_website(website)
-            if not is_accessible:
-                score = max(0, score - 25)  # Reduce score, but not below 0
-                website = f"{updated_url} (inactive)"
-            else:
-                website = updated_url
-                # Fetch website content
-                try:
-                    response = requests.get(website, timeout=5)
-                    response.raise_for_status()
-                    soup = BeautifulSoup(response.content, 'html.parser')
-                    website_text = soup.get_text(separator=' ', strip=True)
-                    
-                    # Combine unified_resume and website_text
-                    combined_text = f"{unified_resume}\n\nWebsite Content:\n{website_text}"
-                    
-                    # Re-run match_resume_to_job with combined_text
-                    result = match_resume_to_job(combined_text, job_desc, file, resume_images)
-                    if isinstance(result, str):
-                        result = json5.loads(result)
-                    score = result.get('score', 0)
-                    match_reasons = result.get('match_reasons', '')
-                except Exception as e:
-                    logging.error(f"Error fetching website content for {file}: {str(e)}")
-        
-        emoji, color, label = get_score_details(score)
-        return (os.path.basename(file), score, emoji, color, label, match_reasons, website, red_flags)
-    except json.JSONDecodeError as je:
-        error_msg = f"JSON Decode Error: {str(je)}"
-        logging.error(f"Error processing {file}: {error_msg}")
-        return (os.path.basename(file), 0, "🔴", "red", error_msg, "", "", [])
-    except Exception as e:
-        error_msg = f"Unexpected Error: {str(e)}"
-        logging.error(f"Error processing {file}: {error_msg}")
-        return (os.path.basename(file), 0, "🔴", "red", error_msg, "", "", [])
 
 import concurrent.futures
 
@@ -1288,7 +1214,7 @@ def process_resumes(job_desc, pdf_files, font_styles, generate_pdf):
 
 def unify_single_resume(file, font_styles, generate_pdf):
     extracted_data = extract_text_and_image_from_pdf(file)
-    return unify_format(extracted_data, font_styles, generate_pdf)
+    return unify_format(extracted_data, font_styles, file, generate_pdf)
 
 def match_single_resume(job_desc, file, unified_resume, resume_images):
     if not unified_resume:
@@ -1298,19 +1224,6 @@ def match_single_resume(job_desc, file, unified_resume, resume_images):
     result = match_resume_to_job(unified_resume, job_desc, file, resume_images)
     return process_result(os.path.basename(file)[:20], result)
 
-def process_single_resume(job_desc, file, font_styles, generate_pdf):
-    basename = os.path.basename(file)[:20]
-    try:
-        extracted_data = extract_text_and_image_from_pdf(file)
-        unified_resume, resume_images = unify_format(extracted_data, font_styles, generate_pdf)
-        
-        if not unified_resume:
-            return (basename, 0, "🔴", "red", "Error: Failed to unify resume format", "", "", [])
-        
-        result = match_resume_to_job(unified_resume, job_desc, file, resume_images)
-        return process_result(basename, result)
-    except Exception as e:
-        return (basename, 0, "🔴", "red", f"Error: {str(e)}", "", "", [])
 
 def process_result(basename, result):
     if isinstance(result, str):
