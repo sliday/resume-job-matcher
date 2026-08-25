@@ -6,10 +6,14 @@ import { loadConfig, MODELS } from './config.js';
 import { getModel } from './ai.js';
 import { extractPdfText } from './pdf.js';
 import {
+  analyzeOverallMatches,
   extractJobRequirements,
   generateCandidateEmail,
   getScoreDetails,
+  improveJobDescription,
   matchResume,
+  rankJobDescription,
+  unifyResume,
   type MatchResult,
   type RedFlags,
 } from './match.js';
@@ -83,14 +87,38 @@ async function main() {
   console.log('Extracting job requirements (once, shared by all candidates)...');
   const jobRequirements = await extractJobRequirements(model, jobDesc);
 
+  if (config.analyzeJd) {
+    console.log('Ranking job description...');
+    const ranking = await rankJobDescription(model, jobDesc, jobRequirements);
+    console.log(pc.bold('\nJob Description Ranking'));
+    for (const [key, score] of Object.entries(ranking.scores)) {
+      console.log(paint('cyan', `${key.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())}: ${score}%`));
+    }
+    console.log(paint('yellow', `\nOverall: ${ranking.overallScore}%`));
+    console.log(pc.bold('\nImprovement Tips'));
+    for (const tip of ranking.improvementTips) console.log(paint('green', `• ${tip}`));
+    const improved = await improveJobDescription(model, jobDesc, ranking);
+    if (improved) {
+      await writeFile('job_description_enhanced.txt', improved);
+      console.log(paint('green', '\nEnhanced job description saved to job_description_enhanced.txt\n'));
+    } else {
+      console.log(paint('red', '\nFailed to enhance job description\n'));
+    }
+  }
+
   console.log(`Matching ${pdfFiles.length} resumes (concurrency ${config.concurrency})...`);
   let done = 0;
   const rows = await mapWithConcurrency(pdfFiles, config.concurrency, async (file): Promise<CandidateRow> => {
     const filename = path.basename(file);
     try {
-      const resumeText = await extractPdfText(file);
+      let resumeText = await extractPdfText(file);
       if (resumeText.length < 100) {
         throw new Error('PDF text extraction too short (scanned image? OCR not supported in TS build)');
+      }
+      if (config.unify) {
+        resumeText = await unifyResume(model, resumeText);
+        await mkdir('out', { recursive: true });
+        await writeFile(path.join('out', `${path.parse(filename).name}_unified.md`), resumeText);
       }
       const result: MatchResult = await matchResume(model, resumeText, jobRequirements);
 
@@ -147,6 +175,21 @@ async function main() {
     console.log(paint('magenta', `Lowest Score: ${Math.min(...scores)}%`));
     console.log(paint('green', `Processed: ${okRows.length}`));
   }
+  if (config.overallAnalysis && okRows.length > 0) {
+    console.log(pc.bold('\nOverall Match Analysis'));
+    try {
+      const { analysis, suggestions } = await analyzeOverallMatches(
+        model,
+        jobDesc,
+        okRows.map((r) => ({ filename: r.filename, score: r.score, matchReasons: r.matchReasons })),
+      );
+      console.log(analysis);
+      for (const suggestion of suggestions) console.log(paint('green', `• ${suggestion}`));
+    } catch (error) {
+      console.log(paint('red', `Analysis failed: ${(error as Error).message}`));
+    }
+  }
+
   if (errors > 0) console.log(paint('red', `Errors: ${errors}`));
   console.log(paint('yellow', '\nMatching Complete'));
 }

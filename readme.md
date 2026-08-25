@@ -60,9 +60,9 @@ Modes (`--api`):
 - `anthropic` — Claude (`ANTHROPIC_API_KEY` or `CLAUDE_API_KEY`)
 - `openai` — GPT (`OPENAI_API_KEY`)
 
-Options: `--concurrency <n>` (default 4), `--threshold <n>` (invite cutoff, default 90), `--no-email`.
+Options: `--concurrency <n>` (default 4), `--threshold <n>` (invite cutoff, default 90), `--no-email`, `--analyze-jd` (rank + enhance the job description), `--unify` (standardize resumes to Markdown before scoring), `--no-analysis` (skip pool analysis).
 
-Note: the TS build extracts embedded PDF text only (no OCR for scanned resumes); use the Python version for OCR and PDF regeneration.
+Note: the TS build extracts embedded PDF text only (no OCR for scanned resumes); use the Python version for OCR and unified-resume PDF regeneration.
 
 ## Usage (Python)
 

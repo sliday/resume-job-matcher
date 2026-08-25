@@ -10,6 +10,9 @@ export interface Config {
   concurrency: number;
   inviteThreshold: number;
   writeEmails: boolean;
+  analyzeJd: boolean;
+  unify: boolean;
+  overallAnalysis: boolean;
 }
 
 export const MODELS: Record<ApiMode, string> = {
@@ -26,6 +29,9 @@ export function loadConfig(argv: string[]): Config {
       concurrency: { type: 'string', default: '4' },
       threshold: { type: 'string', default: '90' },
       'no-email': { type: 'boolean', default: false },
+      'analyze-jd': { type: 'boolean', default: false },
+      unify: { type: 'boolean', default: false },
+      'no-analysis': { type: 'boolean', default: false },
       help: { type: 'boolean', short: 'h', default: false },
     },
     allowPositionals: true,
@@ -43,6 +49,9 @@ Options:
   --concurrency <n>     Parallel resume evaluations (default: 4)
   --threshold <n>       Invite threshold for email generation (default: 90)
   --no-email            Skip candidate email generation
+  --analyze-jd          Rank the job description and write job_description_enhanced.txt
+  --unify               Standardize each resume to Markdown (out/<name>_unified.md) and score that
+  --no-analysis         Skip the overall candidate-pool analysis
   -h, --help            Show this help
 
 Env: ANTHROPIC_API_KEY (or CLAUDE_API_KEY), OPENAI_API_KEY, OPENROUTER_API_KEY,
@@ -63,5 +72,8 @@ Env: ANTHROPIC_API_KEY (or CLAUDE_API_KEY), OPENAI_API_KEY, OPENROUTER_API_KEY,
     concurrency: Math.max(1, Number(values.concurrency) || 4),
     inviteThreshold: Math.min(100, Math.max(0, Number(values.threshold) || 90)),
     writeEmails: !values['no-email'],
+    analyzeJd: Boolean(values['analyze-jd']),
+    unify: Boolean(values.unify),
+    overallAnalysis: !values['no-analysis'],
   };
 }

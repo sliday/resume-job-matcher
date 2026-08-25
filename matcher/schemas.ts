@@ -60,3 +60,27 @@ export const EmailSchema = z.object({
   body: z.string(),
 });
 export type Email = z.infer<typeof EmailSchema>;
+
+export const JDRankingSchema = z.object({
+  scores: z.object({
+    language_proficiency: int0to100,
+    education_level: int0to100,
+    experience_years: int0to100,
+    technical_skills: int0to100,
+    certifications: int0to100,
+    soft_skills: int0to100,
+    location: int0to100,
+  }),
+  improvement_tips: z
+    .array(z.string())
+    .describe('3-5 concrete tips to improve the job description'),
+});
+export type JDRanking = z.infer<typeof JDRankingSchema>;
+
+export const OverallAnalysisSchema = z.object({
+  analysis: z.string().describe('Brief overall analysis of the candidate pool vs the job'),
+  suggestions: z
+    .array(z.string())
+    .describe('3-5 actionable suggestions to attract better-matching candidates'),
+});
+export type OverallAnalysis = z.infer<typeof OverallAnalysisSchema>;
