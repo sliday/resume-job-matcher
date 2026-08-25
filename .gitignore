@@ -8,3 +8,5 @@ __pycache__/
 .env
 codedb.snapshot
 reports/
+node_modules/
+dist/

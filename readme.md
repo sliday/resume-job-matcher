@@ -44,7 +44,27 @@
 
 ![CleanShot 2024-09-23 at 23 02 45@2x](https://github.com/user-attachments/assets/bc789343-839e-44bc-b3fb-df3cedf869a8)
 
-## Usage
+## Usage (TypeScript, recommended)
+
+The TypeScript implementation (`matcher/`) uses the Vercel AI SDK with structured outputs (zod schemas — no fragile string parsing) and scores each resume in a single model call.
+
+```bash
+npm install
+cp .env-example .env   # add the key for your chosen mode
+npm run match -- [job_desc_file] [pdf_folder] --api openrouter
+```
+
+Modes (`--api`):
+
+- `openrouter` (default) — routes through [openrouter/auto](https://openrouter.ai/openrouter/auto); needs `OPENROUTER_API_KEY`
+- `anthropic` — Claude (`ANTHROPIC_API_KEY` or `CLAUDE_API_KEY`)
+- `openai` — GPT (`OPENAI_API_KEY`)
+
+Options: `--concurrency <n>` (default 4), `--threshold <n>` (invite cutoff, default 90), `--no-email`.
+
+Note: the TS build extracts embedded PDF text only (no OCR for scanned resumes); use the Python version for OCR and PDF regeneration.
+
+## Usage (Python)
 
 To run the script with the new features:
 
