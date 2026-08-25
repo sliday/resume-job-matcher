@@ -4,3 +4,7 @@ out/
 .DS_Store
 job_description.txt
 job_description_enhanced.txt
+__pycache__/
+.env
+codedb.snapshot
+reports/
