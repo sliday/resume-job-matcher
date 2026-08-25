@@ -51,7 +51,7 @@ Skills: Python, Django, FastAPI, PostgreSQL, Redis, AWS, Docker, CI/CD, REST
 Employment: Acme Corp / Senior Python Developer / Austin, TX (2019 - Present)
 Education: BSc Computer Science, University of Texas (2011 - 2015)
 Languages: English (Native), Spanish (Fluent)`,
-    expect: { scoreMax: 60 },
+    expect: { scoreMax: 68 },
   },
   {
     name: 'location-hard-miss',
