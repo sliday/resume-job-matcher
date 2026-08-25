@@ -25,7 +25,7 @@
   "max_iter_cost": null,
   "max_step_cost": null,
   "reserve_budget": 1.0,
-  "sync": null,
+  "sync": false,
   "detached": null,
   "local": false,
   "blind": false
