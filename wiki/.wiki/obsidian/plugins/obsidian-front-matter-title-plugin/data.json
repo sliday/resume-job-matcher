@@ -1,0 +1,43 @@
+{
+  "templates": {
+    "common": {
+      "main": "name",
+      "fallback": ""
+    }
+  },
+  "features": {
+    "explorer": {
+      "enabled": true,
+      "sort": true
+    },
+    "graph": {
+      "enabled": true
+    },
+    "bookmarks": {
+      "enabled": true
+    },
+    "search": {
+      "enabled": true
+    },
+    "suggest": {
+      "enabled": true
+    },
+    "tab": {
+      "enabled": true
+    },
+    "inlineTitle": {
+      "enabled": true
+    },
+    "windowFrame": {
+      "enabled": true
+    }
+  },
+  "processor": {
+    "type": "replace",
+    "args": [
+      ".*/",
+      "",
+      ""
+    ]
+  }
+}

@@ -11,5 +11,4 @@ reports/
 node_modules/
 dist/
 evals/results.json
-.fractal/
 .worktrees/
