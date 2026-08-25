@@ -8,5 +8,5 @@
     "noEmit": true,
     "types": ["node"]
   },
-  "include": ["matcher"]
+  "include": ["matcher", "evals"]
 }

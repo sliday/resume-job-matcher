@@ -6,7 +6,8 @@
   "private": true,
   "scripts": {
     "match": "tsx matcher/index.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "eval": "OPENAI_MODEL=gpt-5-mini tsx evals/run.ts"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^4.0.0",
