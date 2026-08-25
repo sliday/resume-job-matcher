@@ -1,0 +1,6 @@
+{
+  "user": true,
+  "project": ".",
+  "root": "master",
+  "agent": "claude"
+}
