@@ -7,9 +7,11 @@ import { getModel } from './ai.js';
 import { extractPdfText } from './pdf.js';
 import {
   analyzeOverallMatches,
+  estimateCostUsd,
   extractJobRequirements,
   generateCandidateEmail,
   getScoreDetails,
+  getTokenUsage,
   improveJobDescription,
   matchResume,
   rankJobDescription,
@@ -191,6 +193,14 @@ async function main() {
   }
 
   if (errors > 0) console.log(paint('red', `Errors: ${errors}`));
+
+  const tokens = getTokenUsage();
+  const cost = estimateCostUsd(MODELS[config.mode], tokens);
+  const costText = cost === null ? '' : ` ≈ $${cost.toFixed(4)}`;
+  console.log(
+    paint('gray', `Tokens: ${tokens.input} in + ${tokens.output} out over ${tokens.calls} LLM calls${costText}`),
+  );
+
   console.log(paint('yellow', '\nMatching Complete'));
 }
 

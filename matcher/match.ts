@@ -1,4 +1,4 @@
-import { generateObject, generateText } from 'ai';
+import { generateObject as sdkGenerateObject, generateText as sdkGenerateText } from 'ai';
 import type { LanguageModel } from 'ai';
 import {
   DEFAULT_EMPHASIS,
@@ -12,6 +12,51 @@ import {
   type JobRequirements,
   type MatchEvaluation,
 } from './schemas.js';
+
+export interface TokenUsage {
+  input: number;
+  output: number;
+  calls: number;
+}
+
+const tokenUsage: TokenUsage = { input: 0, output: 0, calls: 0 };
+
+function record(usage: { inputTokens?: number; outputTokens?: number } | undefined): void {
+  tokenUsage.calls += 1;
+  tokenUsage.input += usage?.inputTokens ?? 0;
+  tokenUsage.output += usage?.outputTokens ?? 0;
+}
+
+// Wrapped so every call site accumulates usage without threading a counter
+// through each function signature.
+const generateObject = (async (options: any) => {
+  const result = await sdkGenerateObject(options);
+  record(result.usage);
+  return result;
+}) as unknown as typeof sdkGenerateObject;
+
+const generateText = (async (options: any) => {
+  const result = await sdkGenerateText(options);
+  record(result.usage);
+  return result;
+}) as unknown as typeof sdkGenerateText;
+
+export function getTokenUsage(): TokenUsage {
+  return { ...tokenUsage };
+}
+
+// Published per-1M-token rates; unknown models report token counts only.
+const PRICE_PER_MTOK: Record<string, { in: number; out: number }> = {
+  'gpt-5-mini': { in: 0.25, out: 2 },
+  'gpt-5': { in: 1.25, out: 10 },
+  'gpt-4o-mini': { in: 0.15, out: 0.6 },
+};
+
+export function estimateCostUsd(model: string, usage: TokenUsage): number | null {
+  const price = PRICE_PER_MTOK[model];
+  if (!price) return null;
+  return (usage.input * price.in + usage.output * price.out) / 1_000_000;
+}
 
 export interface CriterionWeight {
   key: keyof MatchEvaluation['scores'];
