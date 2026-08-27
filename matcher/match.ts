@@ -1,5 +1,6 @@
 import type { LanguageModel } from 'ai';
 import { generateObject, generateText } from './usage.js';
+import { runGate, type Disqualifier, type GateQuestion, type GateResult } from './gate.js';
 import {
   DEFAULT_EMPHASIS,
   EmailSchema,
@@ -324,4 +325,57 @@ Match results:
 ${JSON.stringify(results, null, 2)}`,
   });
   return { analysis: object.analysis, suggestions: object.suggestions.slice(0, 5) };
+}
+
+export type ScreenDecision = 'NO' | 'SCORED';
+
+export interface ScreenResult {
+  decision: ScreenDecision;
+  gate: GateResult;
+  /** null when the candidate was gated out: a score on a disqualified candidate is misinformation */
+  score: number | null;
+  scores: MatchEvaluation['scores'] | null;
+  matchReasons: string;
+  website: string;
+  redFlags: RedFlags | null;
+}
+
+export type { Disqualifier, GateQuestion, GateResult };
+
+/**
+ * Gate first, score second.
+ *
+ * A candidate who fails a blocking gate never reaches the scoring call. That is both
+ * the correctness fix (no 80% for someone who cannot take the job) and the cost saving
+ * (rejected candidates cost one small call instead of two large ones).
+ */
+export async function screenCandidate(
+  model: LanguageModel,
+  resumeText: string,
+  questions: GateQuestion[],
+  jobRequirements: JobRequirements,
+): Promise<ScreenResult> {
+  const gate = await runGate(model, resumeText, questions);
+  if (!gate.passed) {
+    return {
+      decision: 'NO',
+      gate,
+      score: null,
+      scores: null,
+      matchReasons: '',
+      website: '',
+      redFlags: null,
+    };
+  }
+
+  const match = await matchResume(model, resumeText, jobRequirements);
+  return {
+    decision: 'SCORED',
+    gate,
+    score: match.score,
+    scores: match.scores,
+    matchReasons: match.matchReasons,
+    website: match.website,
+    redFlags: match.redFlags,
+  };
 }
