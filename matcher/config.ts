@@ -1,11 +1,29 @@
 import 'dotenv/config';
 import { parseArgs } from 'node:util';
+import path from 'node:path';
 
 export type ApiMode = 'anthropic' | 'openai' | 'openrouter';
+
+/**
+ * Filesystem-safe slug for a job description, so screening the same candidates
+ * against a second job cannot overwrite the first job's emails. Outputs keyed on
+ * the candidate filename alone silently collide across jobs.
+ */
+export function jobSlug(jobDescFile: string): string {
+  const slug = path
+    .parse(jobDescFile)
+    .name.toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 60);
+  return slug || 'job';
+}
 
 export interface Config {
   mode: ApiMode;
   jobDescFile: string;
+  /** out/<job-slug>; per-job so runs against different jobs never collide */
+  outDir: string;
   pdfFolder: string;
   concurrency: number;
   prefilter: number;
@@ -76,9 +94,12 @@ Env: ANTHROPIC_API_KEY (or CLAUDE_API_KEY), OPENAI_API_KEY, OPENROUTER_API_KEY,
     process.exit(1);
   }
 
+  const jobDescFile = positionals[0] ?? 'job_description.txt';
+
   return {
     mode,
-    jobDescFile: positionals[0] ?? 'job_description.txt',
+    jobDescFile,
+    outDir: path.join('out', jobSlug(jobDescFile)),
     pdfFolder: positionals[1] ?? 'src',
     concurrency: Math.max(1, Number(values.concurrency) || 4),
     prefilter: Math.max(0, Number(values.prefilter) || 0),

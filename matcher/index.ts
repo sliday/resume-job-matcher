@@ -113,8 +113,10 @@ async function main() {
     for (const tip of ranking.improvementTips) console.log(paint('green', `• ${tip}`));
     const improved = await improveJobDescription(model, jobDesc, ranking);
     if (improved) {
-      await writeFile('job_description_enhanced.txt', improved);
-      console.log(paint('green', '\nEnhanced job description saved to job_description_enhanced.txt\n'));
+      await mkdir(config.outDir, { recursive: true });
+      const enhancedPath = path.join(config.outDir, 'job_description_enhanced.txt');
+      await writeFile(enhancedPath, improved);
+      console.log(paint('green', `\nEnhanced job description saved to ${enhancedPath}\n`));
     } else {
       console.log(paint('red', '\nFailed to enhance job description\n'));
     }
@@ -174,8 +176,8 @@ async function main() {
       let resumeText = entry.text;
       if (config.unify) {
         resumeText = await unifyResume(model, resumeText);
-        await mkdir('out', { recursive: true });
-        await writeFile(path.join('out', `${path.parse(filename).name}_unified.md`), resumeText);
+        await mkdir(config.outDir, { recursive: true });
+        await writeFile(path.join(config.outDir, `${path.parse(filename).name}_unified.md`), resumeText);
       }
       const result = await screenCandidate(model, resumeText, gateQuestions, jobRequirements);
 
@@ -188,8 +190,8 @@ async function main() {
           result.score,
           config.inviteThreshold,
         );
-        await mkdir('out', { recursive: true });
-        const outFile = path.join('out', `${path.parse(filename).name}_response.txt`);
+        await mkdir(config.outDir, { recursive: true });
+        const outFile = path.join(config.outDir, `${path.parse(filename).name}_response.txt`);
         await writeFile(outFile, `Subject: ${email.subject}\n\n${email.body}`);
       }
 

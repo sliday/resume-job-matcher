@@ -43,8 +43,8 @@ One key is enough. Override the model per mode with `ANTHROPIC_MODEL`, `OPENAI_M
 | `--concurrency <n>` | Parallel evaluations. Default 4. |
 | `--threshold <n>` | Score at or above which the generated email invites rather than rejects. Default 90. |
 | `--no-email` | Skip email generation. Faster and cheaper. |
-| `--analyze-jd` | Grade the job description itself and write an improved version to `job_description_enhanced.txt`. |
-| `--unify` | Normalize each resume to Markdown before scoring, and save it to `out/`. |
+| `--analyze-jd` | Grade the job description itself and write an improved version into the run's output folder. |
+| `--unify` | Normalize each resume to Markdown before scoring, and save it alongside the run output. |
 | `--no-analysis` | Skip the pool-level summary. |
 
 ## How scoring works
@@ -83,13 +83,20 @@ A real run over 5 resumes with `--prefilter 3`: 2 skipped before any LLM call, 2
 
 Results print ranked, with gated-out and pre-filtered candidates listed separately so nothing disappears quietly.
 
-Written to `out/`:
+Written to `out/<job-slug>/`, where the slug comes from the job description filename:
 
-- `<name>_response.txt`: generated candidate email (invite or rejection, per `--threshold`)
+- `<name>_response.txt`: generated candidate email (invite or rejection)
 - `<name>_unified.md`: normalized resume, when `--unify` is set
-- `.embedding-cache.json`: embedding cache, when `--prefilter` is used
+- `job_description_enhanced.txt`: when `--analyze-jd` is set
 
-Every run ends with a token and cost line. `--analyze-jd` also writes `job_description_enhanced.txt`.
+Outputs are namespaced per job deliberately. Screening the same candidates against a
+second job would otherwise overwrite the first job's emails, leaving nothing in the file
+to say which role it was written for.
+
+The embedding cache sits at `out/.embedding-cache.json`, outside the per-job folders on
+purpose: it is keyed on resume content, so every job shares it.
+
+Every run ends with a token and cost line covering both generation and embedding calls.
 
 ![CleanShot 2024-10-09 at 17 08 09@2x](https://github.com/user-attachments/assets/e47b57e1-521a-4b21-aeb3-975af1e0f2ed)
 
