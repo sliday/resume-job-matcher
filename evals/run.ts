@@ -72,7 +72,7 @@ async function runFixture(
     failures.push(`expected empty website, got "${result.website}"`);
   }
   if (e.emailNameIncludes) {
-    const email = await generateCandidateEmail(model, fixture.resume, score ?? 0, 90);
+    const email = await generateCandidateEmail(model, fixture.resume, score, 90);
     const text = `${email.subject}\n${email.body}`;
     if (!text.includes(e.emailNameIncludes)) {
       failures.push(`email does not mention "${e.emailNameIncludes}": ${email.body.slice(0, 120)}`);

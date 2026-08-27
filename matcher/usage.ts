@@ -28,6 +28,16 @@ export const generateText = (async (options: any) => {
   return result;
 }) as unknown as typeof sdkGenerateText;
 
+/**
+ * Embeddings bill input tokens only and go through embedMany, which the wrappers
+ * above do not cover. Without this the reported cost silently excludes every
+ * --prefilter run, while still being labelled the run total.
+ */
+export function recordEmbedding(tokens: number | undefined): void {
+  tokenUsage.calls += 1;
+  tokenUsage.input += tokens ?? 0;
+}
+
 export function getTokenUsage(): TokenUsage {
   return { ...tokenUsage };
 }

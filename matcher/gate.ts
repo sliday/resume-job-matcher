@@ -109,7 +109,18 @@ Job Description:
 ${jobDesc}`,
   });
 
-  return object.questions.slice(0, MAX_GATE_QUESTIONS).map((q) => ({
+  // Duplicate ids collapse in evaluateGate's Map, so the LAST question with a given
+  // id would define the severity for every answer under it. An advisory question
+  // could then inherit a blocking severity and reject a candidate for the wrong
+  // reason. Keep the first, drop the rest.
+  const seen = new Set<string>();
+  const unique = object.questions.filter((q) => {
+    if (seen.has(q.id)) return false;
+    seen.add(q.id);
+    return true;
+  });
+
+  return unique.slice(0, MAX_GATE_QUESTIONS).map((q) => ({
     ...q,
     severity: Math.min(10, Math.max(1, Math.round(q.severity))),
   }));

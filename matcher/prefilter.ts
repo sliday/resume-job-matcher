@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { embedMany } from 'ai';
+import { recordEmbedding } from './usage.js';
 import type { EmbeddingModel } from 'ai';
 
 /**
@@ -42,6 +43,10 @@ export function selectTopK(items: ScoredKey[], k: number): ScoredKey[] {
 }
 
 const CACHE_FILE = path.join('out', '.embedding-cache.json');
+
+// text-embedding-3-small caps at 8191 tokens. ~4 chars/token with headroom, so a
+// long CV is truncated rather than rejecting the batch it travels in.
+const MAX_EMBED_CHARS = 24000;
 
 function cacheKey(modelId: string, text: string): string {
   return createHash('sha256').update(`${modelId}\u0000${text}`).digest('hex');
@@ -93,10 +98,13 @@ export async function embedWithCache(
   const cacheHits = keys.filter((k) => cached.has(k)).length;
 
   if (missingIndices.length > 0) {
-    const { embeddings } = await embedMany({
+    const { embeddings, usage } = await embedMany({
       model,
-      values: missingIndices.map((i) => texts[i]),
+      // One over-long resume would reject the whole batch and abort the run, losing
+      // every valid candidate. Topical ranking does not need the tail of a CV.
+      values: missingIndices.map((i) => texts[i].slice(0, MAX_EMBED_CHARS)),
     });
+    recordEmbedding(usage?.tokens);
     missingIndices.forEach((i, n) => {
       // 6dp keeps ~5 significant digits on values around ±0.05, which moves cosine
       // by ~1e-5 (irrelevant for ranking) and roughly halves the cache on disk.

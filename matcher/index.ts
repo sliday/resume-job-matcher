@@ -180,12 +180,12 @@ async function main() {
       const result = await screenCandidate(model, resumeText, gateQuestions, jobRequirements);
 
       if (config.writeEmails) {
-        // Gated-out candidates get an email too: a rejection is exactly what they are owed,
-        // and score 0 drives the prompt to write one.
+        // Gated-out candidates get an email too: a rejection is exactly what they are
+        // owed. score stays null so the prompt forces rejection at any threshold.
         const email = await generateCandidateEmail(
           model,
           resumeText,
-          result.score ?? 0,
+          result.score,
           config.inviteThreshold,
         );
         await mkdir('out', { recursive: true });
