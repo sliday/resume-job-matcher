@@ -5,6 +5,7 @@ import pc from 'picocolors';
 import { loadConfig, MODELS } from './config.js';
 import { getModel } from './ai.js';
 import { extractPdfText } from './pdf.js';
+import { BLOCKING_SEVERITY, deriveGateQuestions } from './gate.js';
 import {
   analyzeOverallMatches,
   estimateCostUsd,
@@ -13,11 +14,12 @@ import {
   getScoreDetails,
   getTokenUsage,
   improveJobDescription,
-  matchResume,
   rankJobDescription,
+  screenCandidate,
   unifyResume,
-  type MatchResult,
+  type Disqualifier,
   type RedFlags,
+  type ScreenDecision,
 } from './match.js';
 
 type Colorize = (s: string) => string;
@@ -30,7 +32,9 @@ const paint = (color: string, s: string) => (COLORS[color] ?? ((x: string) => x)
 interface CandidateRow {
   filename: string;
   ok: boolean;
-  score: number;
+  decision: ScreenDecision | null;
+  disqualifiers: Disqualifier[];
+  score: number | null;
   matchReasons: string;
   website: string;
   redFlags: RedFlags | null;
@@ -89,6 +93,13 @@ async function main() {
   console.log('Extracting job requirements (once, shared by all candidates)...');
   const jobRequirements = await extractJobRequirements(model, jobDesc);
 
+  console.log('Deriving gate questions (once, shared by all candidates)...');
+  const gateQuestions = await deriveGateQuestions(model, jobDesc);
+  for (const q of gateQuestions) {
+    const kind = q.severity >= BLOCKING_SEVERITY ? pc.red('blocking') : pc.gray('advisory');
+    console.log(paint('gray', `  [${q.severity}] ${q.question} `) + kind);
+  }
+
   if (config.analyzeJd) {
     console.log('Ranking job description...');
     const ranking = await rankJobDescription(model, jobDesc, jobRequirements);
@@ -122,25 +133,51 @@ async function main() {
         await mkdir('out', { recursive: true });
         await writeFile(path.join('out', `${path.parse(filename).name}_unified.md`), resumeText);
       }
-      const result: MatchResult = await matchResume(model, resumeText, jobRequirements);
+      const result = await screenCandidate(model, resumeText, gateQuestions, jobRequirements);
 
       if (config.writeEmails) {
-        const email = await generateCandidateEmail(model, resumeText, result.score, config.inviteThreshold);
+        // Gated-out candidates get an email too: a rejection is exactly what they are owed,
+        // and score 0 drives the prompt to write one.
+        const email = await generateCandidateEmail(
+          model,
+          resumeText,
+          result.score ?? 0,
+          config.inviteThreshold,
+        );
         await mkdir('out', { recursive: true });
         const outFile = path.join('out', `${path.parse(filename).name}_response.txt`);
         await writeFile(outFile, `Subject: ${email.subject}\n\n${email.body}`);
       }
 
       process.stdout.write(`\r${++done}/${pdfFiles.length} done`);
-      return { filename, ok: true, score: result.score, matchReasons: result.matchReasons, website: result.website, redFlags: result.redFlags };
+      return {
+        filename,
+        ok: true,
+        decision: result.decision,
+        disqualifiers: result.gate.disqualifiers,
+        score: result.score,
+        matchReasons: result.matchReasons,
+        website: result.website,
+        redFlags: result.redFlags,
+      };
     } catch (error) {
       process.stdout.write(`\r${++done}/${pdfFiles.length} done`);
-      return { filename, ok: false, score: 0, matchReasons: '', website: '', redFlags: null, error: (error as Error).message };
+      return {
+        filename,
+        ok: false,
+        decision: null,
+        disqualifiers: [],
+        score: null,
+        matchReasons: '',
+        website: '',
+        redFlags: null,
+        error: (error as Error).message,
+      };
     }
   });
   process.stdout.write('\n\n');
 
-  const sorted = [...rows].sort((a, b) => b.score - a.score);
+  const sorted = [...rows].sort((a, b) => (b.score ?? -1) - (a.score ?? -1));
   const width = Math.max(...sorted.map((r) => r.filename.length));
 
   for (const row of sorted) {
@@ -148,23 +185,33 @@ async function main() {
       console.log(paint('red', `🔴 ${row.filename.padEnd(width)}: Error: ${row.error}`));
       continue;
     }
-    const { emoji, color, label } = getScoreDetails(row.score);
+    if (row.decision === 'NO') {
+      const reasons = row.disqualifiers.map((d) => d.question).join('; ');
+      console.log(paint('red', `⛔ ${row.filename.padEnd(width)}: NO - ${reasons}`));
+      for (const d of row.disqualifiers) {
+        console.log(paint('gray', `   evidence: ${d.evidence}`));
+      }
+      continue;
+    }
+    const score = row.score ?? 0;
+    const { emoji, color, label } = getScoreDetails(score);
     const site = row.website ? ` - ${row.website}` : '';
-    console.log(paint(color, `${emoji} ${row.filename.padEnd(width)}${site}: ${row.score}% - ${label}`));
+    console.log(paint(color, `${emoji} ${row.filename.padEnd(width)}${site}: ${score}% - ${label}`));
     if (row.redFlags) {
       for (const [flag, names] of Object.entries(row.redFlags)) {
         if (names.length) console.log(paint('red', `  ${flag} ${names.join(', ')}`));
       }
     }
-    if (row.score > 80 && row.matchReasons) {
+    if (score > 80 && row.matchReasons) {
       console.log(paint('cyan', `→ ${row.matchReasons}`));
     }
   }
 
-  const okRows = sorted.filter((r) => r.ok);
-  const errors = sorted.length - okRows.length;
-  if (okRows.length > 0) {
-    const scores = okRows.map((r) => r.score);
+  const scoredRows = sorted.filter((r) => r.ok && r.score !== null);
+  const gatedOut = sorted.filter((r) => r.ok && r.decision === 'NO').length;
+  const errors = sorted.length - sorted.filter((r) => r.ok).length;
+  if (scoredRows.length > 0) {
+    const scores = scoredRows.map((r) => r.score as number);
     console.log(pc.bold('\nSummary'));
     console.log(paint('yellow', `Top Score: ${Math.max(...scores)}%`));
     console.log(paint('cyan', `Average: ${(scores.reduce((a, b) => a + b, 0) / scores.length).toFixed(2)}%`));
@@ -175,15 +222,20 @@ async function main() {
     if (above90) console.log(paint('blue', `Resumes ≥ 90%: ${above90}`));
     if (above80) console.log(paint('cyan', `Resumes ≥ 80%: ${above80}`));
     console.log(paint('magenta', `Lowest Score: ${Math.min(...scores)}%`));
-    console.log(paint('green', `Processed: ${okRows.length}`));
+    console.log(paint('green', `Scored: ${scoredRows.length}`));
   }
-  if (config.overallAnalysis && okRows.length > 0) {
+  if (gatedOut) console.log(paint('red', `Gated out: ${gatedOut}`));
+  if (config.overallAnalysis && scoredRows.length > 0) {
     console.log(pc.bold('\nOverall Match Analysis'));
     try {
       const { analysis, suggestions } = await analyzeOverallMatches(
         model,
         jobDesc,
-        okRows.map((r) => ({ filename: r.filename, score: r.score, matchReasons: r.matchReasons })),
+        scoredRows.map((r) => ({
+          filename: r.filename,
+          score: r.score as number,
+          matchReasons: r.matchReasons,
+        })),
       );
       console.log(analysis);
       for (const suggestion of suggestions) console.log(paint('green', `• ${suggestion}`));

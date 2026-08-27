@@ -1,5 +1,6 @@
-import { generateObject as sdkGenerateObject, generateText as sdkGenerateText } from 'ai';
 import type { LanguageModel } from 'ai';
+import { generateObject, generateText } from './usage.js';
+import { runGate, type Disqualifier, type GateQuestion, type GateResult } from './gate.js';
 import {
   DEFAULT_EMPHASIS,
   EmailSchema,
@@ -13,50 +14,9 @@ import {
   type MatchEvaluation,
 } from './schemas.js';
 
-export interface TokenUsage {
-  input: number;
-  output: number;
-  calls: number;
-}
-
-const tokenUsage: TokenUsage = { input: 0, output: 0, calls: 0 };
-
-function record(usage: { inputTokens?: number; outputTokens?: number } | undefined): void {
-  tokenUsage.calls += 1;
-  tokenUsage.input += usage?.inputTokens ?? 0;
-  tokenUsage.output += usage?.outputTokens ?? 0;
-}
-
-// Wrapped so every call site accumulates usage without threading a counter
-// through each function signature.
-const generateObject = (async (options: any) => {
-  const result = await sdkGenerateObject(options);
-  record(result.usage);
-  return result;
-}) as unknown as typeof sdkGenerateObject;
-
-const generateText = (async (options: any) => {
-  const result = await sdkGenerateText(options);
-  record(result.usage);
-  return result;
-}) as unknown as typeof sdkGenerateText;
-
-export function getTokenUsage(): TokenUsage {
-  return { ...tokenUsage };
-}
-
-// Published per-1M-token rates; unknown models report token counts only.
-const PRICE_PER_MTOK: Record<string, { in: number; out: number }> = {
-  'gpt-5-mini': { in: 0.25, out: 2 },
-  'gpt-5': { in: 1.25, out: 10 },
-  'gpt-4o-mini': { in: 0.15, out: 0.6 },
-};
-
-export function estimateCostUsd(model: string, usage: TokenUsage): number | null {
-  const price = PRICE_PER_MTOK[model];
-  if (!price) return null;
-  return (usage.input * price.in + usage.output * price.out) / 1_000_000;
-}
+// usage.ts is internal infrastructure; match.ts stays the public face of the module,
+// so index.ts keeps importing these from here.
+export { estimateCostUsd, getTokenUsage, type TokenUsage } from './usage.js';
 
 export interface CriterionWeight {
   key: keyof MatchEvaluation['scores'];
@@ -365,4 +325,57 @@ Match results:
 ${JSON.stringify(results, null, 2)}`,
   });
   return { analysis: object.analysis, suggestions: object.suggestions.slice(0, 5) };
+}
+
+export type ScreenDecision = 'NO' | 'SCORED';
+
+export interface ScreenResult {
+  decision: ScreenDecision;
+  gate: GateResult;
+  /** null when the candidate was gated out: a score on a disqualified candidate is misinformation */
+  score: number | null;
+  scores: MatchEvaluation['scores'] | null;
+  matchReasons: string;
+  website: string;
+  redFlags: RedFlags | null;
+}
+
+export type { Disqualifier, GateQuestion, GateResult };
+
+/**
+ * Gate first, score second.
+ *
+ * A candidate who fails a blocking gate never reaches the scoring call. That is both
+ * the correctness fix (no 80% for someone who cannot take the job) and the cost saving
+ * (rejected candidates cost one small call instead of two large ones).
+ */
+export async function screenCandidate(
+  model: LanguageModel,
+  resumeText: string,
+  questions: GateQuestion[],
+  jobRequirements: JobRequirements,
+): Promise<ScreenResult> {
+  const gate = await runGate(model, resumeText, questions);
+  if (!gate.passed) {
+    return {
+      decision: 'NO',
+      gate,
+      score: null,
+      scores: null,
+      matchReasons: '',
+      website: '',
+      redFlags: null,
+    };
+  }
+
+  const match = await matchResume(model, resumeText, jobRequirements);
+  return {
+    decision: 'SCORED',
+    gate,
+    score: match.score,
+    scores: match.scores,
+    matchReasons: match.matchReasons,
+    website: match.website,
+    redFlags: match.redFlags,
+  };
 }

@@ -3,6 +3,8 @@ export interface Fixture {
   jd: 'frontend' | 'german-backend';
   resume: string;
   expect: {
+    decision?: 'NO' | 'SCORED';
+    disqualifierContains?: string;
     scoreMin?: number;
     scoreMax?: number;
     redFlagContains?: string;
@@ -37,7 +39,7 @@ Employment: Finpay GmbH / Senior Frontend Engineer / Berlin (2021 - Present)
 Previously: Shoply / Frontend Engineer / Remote EU (2017 - 2021)
 Education: BSc Computer Science, TU Berlin (2013 - 2017)
 Languages: English (Fluent), German (Native), Spanish (Basic)`,
-    expect: { scoreMin: 60, websiteIncludes: 'alexrivera.dev' },
+    expect: { decision: 'SCORED', scoreMin: 60, websiteIncludes: 'alexrivera.dev' },
   },
   {
     name: 'backend-vs-frontend-mismatch',
@@ -65,7 +67,7 @@ Skills: Python, Django, PostgreSQL, Celery, Kafka, AWS
 Employment: PagBank / Senior Python Developer / São Paulo (2018 - Present)
 Education: BSc Computer Science, USP (2010 - 2014)
 Languages: Portuguese (Native), English (Fluent). No German.`,
-    expect: { redFlagContains: 'Location', scoreMax: 80 },
+    expect: { decision: 'NO', disqualifierContains: 'German' },
   },
   {
     name: 'prompt-injection-resistance',

@@ -5,7 +5,7 @@ Every shipped item: move to Done with 3 lines (problem / solution / impact).
 
 ## Definition of green
 `npm run eval` exits 0 (5 fixtures: match band, red-flag firing, injection resistance,
-website extraction, email personalization). Runs on gpt-5-mini, costs cents.
+website extraction, email personalization). Runs on gpt-5.6-luna, costs cents.
 
 ## Backlog
 
@@ -13,7 +13,6 @@ website extraction, email personalization). Runs on gpt-5-mini, costs cents.
 Design: `docs/2026-08-27-cognitive-matcher-design.md`. Ordered; each item lands green alone.
 Root defect: the score is compensatory, so disqualifiers become discounts (fixture
 `location-hard-miss` asserts scoreMax 80 for a candidate who cannot take the job).
-[] C1 Gate + FMEA severities — must-pass questions block; disqualified candidates get no score
 [] C2 BARS anchors + evidence-before-number — kills anchorless 0-100; unblocks calibration fixture
 [] C3 Coarse 3-level weights, human-set — drop per-job weight hallucination (Dawes)
 [] C4 Collapse 41 score bands -> 5, report interval — stop reporting finer than the signal resolves
@@ -35,6 +34,23 @@ Two open questions carried from the design:
 [] GitHub Action: eval on PR + nightly
 
 ## Done
+- 2026-08-27: C1 gate + FMEA severities. Plan: `docs/2026-08-27-c1-gate-plan.md`.
+  Problem: the score was compensatory, so hard constraints became discounts. Fixture
+  location-hard-miss asserted scoreMax 80 for a candidate in Brazil, no German, who
+  will not relocate, against a Berlin on-site job. The author could not assert a
+  rejection because the model had no way to express one.
+  Solution: JD-derived binary gate questions carrying an FMEA severity; a FAIL at
+  severity >= 7 blocks and suppresses the score, UNCERTAIN and silence pass forward
+  (recall bias at the screen stage). Blocked candidates skip the scoring call.
+  Impact: location-hard-miss now returns score null with a cited resume span. The
+  derivation prompt discriminated correctly on both models tried: the fully-remote
+  frontend JD produced one advisory gate at severity 4 and blocked nobody, while
+  german-backend produced blocking gates at severity 9-10 (residence, on-site, work
+  authorization). strong-frontend-match still scores 91, so the gate is not eating
+  good candidates.
+  Also: eval + CLI default moved to gpt-5.6-luna ($0.20/$1.20 per Mtok, cheaper than
+  both gpt-5-mini and the old gpt-5 CLI default) and its pricing added to the cost table.
+  Checker: typecheck green, 10/10 unit tests, 5/5 evals on gpt-5-mini AND on gpt-5.6-luna.
 - 2026-08-26: Token-cost line per run (shipped by fractal node improve_matcher, iteration 2.1).
   Problem: no visibility into per-run LLM spend.
   Solution: usage-accumulating wrappers around generateObject/generateText + published
@@ -51,6 +67,10 @@ Two open questions carried from the design:
   scoreMax widened 60 -> 68 (2026-08-26). Revisit if it drifts above 68.
   Root cause is anchorless magnitude estimation, not fixture tuning. C1+C2 should dissolve this:
   53 and 63 both map to the same decision, so the band stops mattering. Delete the entry then.
+  2026-08-27: measured across models, same fixture scored 24 (gpt-5.6-luna) vs 55 (gpt-5-mini)
+  vs 53/63 (gpt-5-mini, earlier runs). A 30-point cross-model spread on identical input is
+  the strongest evidence yet that the 0-100 scale is the weak instrument. Raises the priority
+  of C2 (BARS anchors) and C4 (collapse the bands, report an interval).
 
 ## Fractal run log
 - Run 1 (2026-08-25): $4.56 — SYNC step alone blew the $2 cap; no work. Fix: cap -> $10.
