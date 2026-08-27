@@ -34,6 +34,7 @@ export function getTokenUsage(): TokenUsage {
 
 // Published per-1M-token rates; unknown models report token counts only.
 const PRICE_PER_MTOK: Record<string, { in: number; out: number }> = {
+  'gpt-5.6-luna': { in: 0.2, out: 1.2 },
   'gpt-5-mini': { in: 0.25, out: 2 },
   'gpt-5': { in: 1.25, out: 10 },
   'gpt-4o-mini': { in: 0.15, out: 0.6 },
