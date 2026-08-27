@@ -13,27 +13,51 @@ website extraction, email personalization). Runs on gpt-5.6-luna, costs cents.
 Design: `docs/2026-08-27-cognitive-matcher-design.md`. Ordered; each item lands green alone.
 Root defect: the score is compensatory, so disqualifiers become discounts (fixture
 `location-hard-miss` asserts scoreMax 80 for a candidate who cannot take the job).
-[] C2 BARS anchors + evidence-before-number — kills anchorless 0-100; unblocks calibration fixture
+[] C2b Calibration fixture FIRST — same pair, N runs, stdev bound. Promoted out of "Other":
+   after C2 we cannot tell signal from noise at n=1 per cell, and every remaining item
+   claims to reduce variance. Buy the instrument before buying more experiments.
+[] C2c Per-criterion BARS anchors — one shared 5-level scale across 7 heterogeneous criteria
+   is too generic; "clear evidence, minor gap" means different things for location vs
+   technical_skills. Blocked on C2b, else unmeasurable.
 [] C3 Coarse 3-level weights, human-set — drop per-job weight hallucination (Dawes)
 [] C4 Collapse 41 score bands -> 5, report interval — stop reporting finer than the signal resolves
 [] C5 Surprise pass — diff vs expected-candidate model; scores deviation, not conformity
 [] C6 Multi-stance adjudication — 3 stances; median = decision, spread = confidence
 [] C7 Pairwise shortlist rank — Bradley-Terry; answers "who do I interview first"
 [] C8 Calibration corpus — blocked until 10-20 labeled past screens exist; start collecting now
+[] C9 Replace HR-taxonomy criteria with predictive ones (task-domain evidence, scope
+   trajectory, recency, evidence quality, role-shape fit). Deferred out of C2 on purpose:
+   emphasis weights are keyed 1:1 to the current criteria, so this drags C3 in with it.
 
-Two open questions carried from the design:
+Three open questions carried from the design:
 - C8 needs labeled history (interviewed / hired / flamed out). None known to exist yet.
 - C3 needs a home for human-set weights: JD frontmatter, sidecar file, or CLI flag.
+- Since C1, location and work authorization are checked by the gate AND scored as a
+  criterion. That is double counting. Belongs with C9, not earlier.
 
 ### Other
 [] OCR for scanned PDFs (tesseract.js) — then retire the Python implementation
 [] Structured retry/backoff on provider 429s (max 3 attempts — circuit breaker)
-[] Per-criterion score explanations in output (auditability) — folded into C2
-[] Calibration fixture: same pair 3 runs, stdev bound (deferred — 3x eval cost)
 [] Batch/parallel provider mode for large candidate pools
 [] GitHub Action: eval on PR + nightly
 
 ## Done
+- 2026-08-28: C2 BARS anchors + evidence-before-number. Plan: `docs/2026-08-28-c2-anchors-plan.md`.
+  Problem: criterion ratings were anchorless 0-100 with the number emitted before any
+  reasoning. Same fixture scored 24 on luna and 55 on gpt-5-mini.
+  Solution: 5-level behaviorally anchored scale; schema puts `evidence` before `level` so
+  the model quotes the resume span first. Aggregation extracted to `scoring.ts` as a pure
+  function (12 tests); CRITERIA to `criteria.ts` to keep the import graph acyclic.
+  Impact, stated honestly: THE VARIANCE CLAIM DID NOT HOLD. Cross-model spread on the
+  target fixture narrowed 31 -> 23, but the mean spread across the four scored fixtures
+  got worse, 11.0 -> 16.0, driven by prompt-injection-resistance going 3 -> 27. One run
+  per cell, so this is weak evidence either way, which is itself the finding: we cannot
+  measure variance claims at n=1, and every remaining item makes one. Hence C2b.
+  What did land and is verified: per-criterion evidence with real quoted spans (checked
+  by hand against a live run, "not stated" where absent), and a pure, unit-tested
+  aggregation that C3 and C4 need in order to change the arithmetic safely.
+  Kept rather than reverted because those two wins are independent of the variance claim.
+  Checker: typecheck green, 22/22 unit tests, 5/5 evals on gpt-5.6-luna AND gpt-5-mini.
 - 2026-08-27: C1 gate + FMEA severities. Plan: `docs/2026-08-27-c1-gate-plan.md`.
   Problem: the score was compensatory, so hard constraints became discounts. Fixture
   location-hard-miss asserted scoreMax 80 for a candidate in Brazil, no German, who
