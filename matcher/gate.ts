@@ -1,3 +1,9 @@
+import type { LanguageModel } from 'ai';
+import { generateObject } from './usage.js';
+import { GateAnswersSchema, GateQuestionsSchema } from './schemas.js';
+
+const MAX_GATE_QUESTIONS = 5;
+
 /**
  * FMEA severity at or above which a failed gate question blocks a candidate.
  * Below this, a failure is advisory: it is recorded but does not stop scoring.
@@ -63,4 +69,43 @@ export function evaluateGate(questions: GateQuestion[], answers: GateAnswer[]): 
   }
 
   return { passed: disqualifiers.length === 0, answers, disqualifiers };
+}
+
+/**
+ * Derive the hard constraints for a job, once per run.
+ *
+ * The prompt bans graded skills on purpose. "Has React experience" is a score,
+ * not a gate; letting it in here would rebuild the compensatory model one level up.
+ */
+export async function deriveGateQuestions(
+  model: LanguageModel,
+  jobDesc: string,
+): Promise<GateQuestion[]> {
+  const { object } = await generateObject({
+    model,
+    schema: GateQuestionsSchema,
+    prompt: `Derive the hard gate questions for this job: the constraints that make a candidate
+impossible or clearly unacceptable to hire, no matter how strong they are elsewhere.
+
+Rules:
+- 2 to 5 questions. Each must be answerable YES/NO from a resume alone.
+- Hard constraints only: work location or authorization, mandatory on-site presence,
+  a legally required licence or certification, an explicit non-negotiable stated as "must".
+- Never a graded skill. "Has React experience" is graded, not a gate.
+  "Is legally able to work in Germany" is a gate.
+- Phrase each question so that YES means the candidate is acceptable.
+- severity 10 = impossible to hire. 7-9 = stated as a hard must. 4-6 = strong preference.
+  1-3 = nice to have. Only severity 7 and above blocks a candidate, so reserve 7 and
+  above for genuine must-haves.
+- If this job states no hard constraints at all, return the single most defensible
+  question at severity 4. Do not invent a blocking constraint to fill the quota.
+
+Job Description:
+${jobDesc}`,
+  });
+
+  return object.questions.slice(0, MAX_GATE_QUESTIONS).map((q) => ({
+    ...q,
+    severity: Math.min(10, Math.max(1, Math.round(q.severity))),
+  }));
 }

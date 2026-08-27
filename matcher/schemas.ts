@@ -84,3 +84,37 @@ export const OverallAnalysisSchema = z.object({
     .describe('3-5 actionable suggestions to attract better-matching candidates'),
 });
 export type OverallAnalysis = z.infer<typeof OverallAnalysisSchema>;
+
+export const GateQuestionsSchema = z.object({
+  questions: z
+    .array(
+      z.object({
+        id: z.string().describe('kebab-case slug, e.g. work-authorization'),
+        question: z
+          .string()
+          .describe('Binary question, phrased so that YES means the candidate is acceptable'),
+        severity: z
+          .number()
+          .int()
+          .min(1)
+          .max(10)
+          .describe(
+            'FMEA severity. 10 = impossible to hire. 7-9 = stated hard must. 4-6 = strong preference. 1-3 = nice to have.',
+          ),
+        why: z.string().describe('Short quote from the job description that justifies this gate'),
+      }),
+    )
+    .describe('2-5 hard-constraint questions. Never graded skills.'),
+});
+export type GateQuestions = z.infer<typeof GateQuestionsSchema>;
+
+export const GateAnswersSchema = z.object({
+  answers: z.array(
+    z.object({
+      id: z.string().describe('Must match one of the supplied question ids exactly'),
+      verdict: z.enum(['PASS', 'FAIL', 'UNCERTAIN']),
+      evidence: z.string().describe('Exact quote from the resume, or "not stated"'),
+    }),
+  ),
+});
+export type GateAnswers = z.infer<typeof GateAnswersSchema>;
