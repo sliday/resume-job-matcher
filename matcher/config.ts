@@ -8,12 +8,19 @@ export interface Config {
   jobDescFile: string;
   pdfFolder: string;
   concurrency: number;
+  prefilter: number;
   inviteThreshold: number;
   writeEmails: boolean;
   analyzeJd: boolean;
   unify: boolean;
   overallAnalysis: boolean;
 }
+
+// Anthropic has no embeddings API, so --prefilter is unavailable in that mode.
+export const EMBEDDING_MODELS: Partial<Record<ApiMode, string>> = {
+  openai: process.env.OPENAI_EMBEDDING_MODEL ?? 'text-embedding-3-small',
+  openrouter: process.env.OPENROUTER_EMBEDDING_MODEL ?? 'openai/text-embedding-3-small',
+};
 
 export const MODELS: Record<ApiMode, string> = {
   anthropic: process.env.ANTHROPIC_MODEL ?? 'claude-sonnet-4-5',
@@ -27,6 +34,7 @@ export function loadConfig(argv: string[]): Config {
     options: {
       api: { type: 'string', default: 'openrouter' },
       concurrency: { type: 'string', default: '4' },
+      prefilter: { type: 'string', default: '0' },
       threshold: { type: 'string', default: '90' },
       'no-email': { type: 'boolean', default: false },
       'analyze-jd': { type: 'boolean', default: false },
@@ -47,6 +55,9 @@ Positionals:
 Options:
   --api <mode>          anthropic | openai | openrouter (default: openrouter -> openrouter/auto)
   --concurrency <n>     Parallel resume evaluations (default: 4)
+  --prefilter <n>       Embed resumes and keep only the n closest to the job before
+                        scoring (default: 0 = off). Cheap first cut for large pools.
+                        Needs --api openai or openrouter; Anthropic has no embeddings.
   --threshold <n>       Invite threshold for email generation (default: 90)
   --no-email            Skip candidate email generation
   --analyze-jd          Rank the job description and write job_description_enhanced.txt
@@ -70,6 +81,7 @@ Env: ANTHROPIC_API_KEY (or CLAUDE_API_KEY), OPENAI_API_KEY, OPENROUTER_API_KEY,
     jobDescFile: positionals[0] ?? 'job_description.txt',
     pdfFolder: positionals[1] ?? 'src',
     concurrency: Math.max(1, Number(values.concurrency) || 4),
+    prefilter: Math.max(0, Number(values.prefilter) || 0),
     inviteThreshold: Math.min(100, Math.max(0, Number(values.threshold) || 90)),
     writeEmails: !values['no-email'],
     analyzeJd: Boolean(values['analyze-jd']),

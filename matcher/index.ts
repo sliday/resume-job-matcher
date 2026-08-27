@@ -3,9 +3,10 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import pc from 'picocolors';
 import { loadConfig, MODELS } from './config.js';
-import { getModel } from './ai.js';
+import { getEmbeddingModel, getModel } from './ai.js';
 import { extractPdfText } from './pdf.js';
 import { BLOCKING_SEVERITY, deriveGateQuestions } from './gate.js';
+import { cosineSimilarity, embedWithCache, selectTopK } from './prefilter.js';
 import {
   analyzeOverallMatches,
   estimateCostUsd,
@@ -119,15 +120,58 @@ async function main() {
     }
   }
 
-  console.log(`Matching ${pdfFiles.length} resumes (concurrency ${config.concurrency})...`);
-  let done = 0;
-  const rows = await mapWithConcurrency(pdfFiles, config.concurrency, async (file): Promise<CandidateRow> => {
+  // Phase A: pull text out of every PDF first. Local, no LLM, so it is cheap enough
+  // to do for the whole pool even when most of the pool is about to be filtered out.
+  const extracted = await mapWithConcurrency(pdfFiles, config.concurrency, async (file) => {
     const filename = path.basename(file);
     try {
-      let resumeText = await extractPdfText(file);
-      if (resumeText.length < 100) {
+      const text = await extractPdfText(file);
+      if (text.length < 100) {
         throw new Error('PDF text extraction too short (scanned image? OCR not supported in TS build)');
       }
+      return { file, filename, text, error: undefined as string | undefined };
+    } catch (error) {
+      return { file, filename, text: '', error: (error as Error).message };
+    }
+  });
+
+  // Phase B: optional embedding pre-filter. The point is to avoid the job x candidate
+  // cross product: embedding is ~100x cheaper per candidate than gating and scoring,
+  // and the cache is keyed on content, so a candidate is embedded once across all jobs.
+  const readable = extracted.filter((e) => !e.error);
+  let shortlist = extracted;
+  let filteredOut: string[] = [];
+  if (config.prefilter > 0 && readable.length > config.prefilter) {
+    const { model: embedModel, id: embedId } = getEmbeddingModel(config.mode);
+    const { vectors, embedded, reused } = await embedWithCache(embedModel, embedId, [
+      jobDesc,
+      ...readable.map((e) => e.text),
+    ]);
+    const [jobVector, ...resumeVectors] = vectors;
+    const ranked = selectTopK(
+      readable.map((e, i) => ({ key: e.filename, score: cosineSimilarity(jobVector, resumeVectors[i]) })),
+      config.prefilter,
+    );
+    const keep = new Set(ranked.map((r) => r.key));
+    filteredOut = readable.filter((e) => !keep.has(e.filename)).map((e) => e.filename);
+    shortlist = extracted.filter((e) => e.error || keep.has(e.filename));
+    console.log(
+      paint(
+        'gray',
+        `Pre-filter (${embedId}): embedded ${embedded}, reused ${reused} from cache; ` +
+          `kept top ${keep.size} of ${readable.length}, skipped ${filteredOut.length}`,
+      ),
+    );
+  }
+
+  // Phase C: the expensive pass, survivors only.
+  console.log(`Matching ${shortlist.length} resumes (concurrency ${config.concurrency})...`);
+  let done = 0;
+  const rows = await mapWithConcurrency(shortlist, config.concurrency, async (entry): Promise<CandidateRow> => {
+    const { filename } = entry;
+    try {
+      if (entry.error) throw new Error(entry.error);
+      let resumeText = entry.text;
       if (config.unify) {
         resumeText = await unifyResume(model, resumeText);
         await mkdir('out', { recursive: true });
@@ -149,7 +193,7 @@ async function main() {
         await writeFile(outFile, `Subject: ${email.subject}\n\n${email.body}`);
       }
 
-      process.stdout.write(`\r${++done}/${pdfFiles.length} done`);
+      process.stdout.write(`\r${++done}/${shortlist.length} done`);
       return {
         filename,
         ok: true,
@@ -161,7 +205,7 @@ async function main() {
         redFlags: result.redFlags,
       };
     } catch (error) {
-      process.stdout.write(`\r${++done}/${pdfFiles.length} done`);
+      process.stdout.write(`\r${++done}/${shortlist.length} done`);
       return {
         filename,
         ok: false,
@@ -225,6 +269,12 @@ async function main() {
     console.log(paint('green', `Scored: ${scoredRows.length}`));
   }
   if (gatedOut) console.log(paint('red', `Gated out: ${gatedOut}`));
+  if (filteredOut.length) {
+    // Named, not just counted: a silent drop is indistinguishable from a bug.
+    const shown = filteredOut.slice(0, 5).join(', ');
+    const rest = filteredOut.length > 5 ? `, +${filteredOut.length - 5} more` : '';
+    console.log(paint('gray', `Pre-filtered (never scored): ${filteredOut.length} - ${shown}${rest}`));
+  }
   if (config.overallAnalysis && scoredRows.length > 0) {
     console.log(pc.bold('\nOverall Match Analysis'));
     try {
