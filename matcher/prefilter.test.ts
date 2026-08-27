@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { cosineSimilarity, selectTopK } from './prefilter.js';
+import { cosineSimilarity, pendingEmbedIndices, selectTopK } from './prefilter.js';
 
 // cosine goes through two sqrt calls, so exact float equality is the wrong
 // assertion: [1,1] vs [10,10] lands on 0.9999999999999998.
@@ -85,4 +85,28 @@ test('selectTopK does not mutate its input', () => {
 
 test('an empty pool is not an error', () => {
   assert.deepEqual(selectTopK([], 5), []);
+});
+
+test('nothing cached means every text needs embedding', () => {
+  assert.deepEqual(pendingEmbedIndices(['a', 'b', 'c'], new Set()), [0, 1, 2]);
+});
+
+test('cached keys are skipped', () => {
+  assert.deepEqual(pendingEmbedIndices(['a', 'b', 'c'], new Set(['b'])), [0, 2]);
+});
+
+test('a duplicate text in one batch is embedded once, at its first position', () => {
+  assert.deepEqual(pendingEmbedIndices(['a', 'b', 'a', 'a'], new Set()), [0, 1]);
+});
+
+test('a duplicate of an already-cached key is skipped entirely', () => {
+  assert.deepEqual(pendingEmbedIndices(['a', 'a', 'b'], new Set(['a'])), [2]);
+});
+
+test('everything cached means no embedding call at all', () => {
+  assert.deepEqual(pendingEmbedIndices(['a', 'b'], new Set(['a', 'b'])), []);
+});
+
+test('an empty batch is not an error', () => {
+  assert.deepEqual(pendingEmbedIndices([], new Set(['a'])), []);
 });

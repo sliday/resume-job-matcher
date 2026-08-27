@@ -23,6 +23,9 @@ export { CRITERIA, type CriterionWeight };
 export type { RedFlags };
 export { getScoreDetails } from './bands.js';
 
+/** Ceiling for a model-supplied criterion weight. The prompt asks for 5-50. */
+export const MAX_EMPHASIS = 100;
+
 export interface MatchResult {
   score: number;
   scores: Record<string, number>;
@@ -46,11 +49,15 @@ Weights in "emphasis" express how much each criterion matters for THIS job (inte
 Job Description:
 ${jobDesc}`,
   });
-  // Guard against a model returning zero/negative weights
+  // Guard the weights: they come straight from the model and drive the whole score.
+  // Zero or negative falls back to the default; anything above MAX_EMPHASIS is clamped,
+  // because one criterion at 10000 silently turns the weighted mean into that criterion.
   const emphasis = { ...object.emphasis };
   for (const key of Object.keys(DEFAULT_EMPHASIS) as (keyof Emphasis)[]) {
     if (!Number.isFinite(emphasis[key]) || emphasis[key] <= 0) {
       emphasis[key] = DEFAULT_EMPHASIS[key];
+    } else if (emphasis[key] > MAX_EMPHASIS) {
+      emphasis[key] = MAX_EMPHASIS;
     }
   }
   return { ...object, emphasis };

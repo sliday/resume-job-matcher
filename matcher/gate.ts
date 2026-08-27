@@ -54,12 +54,17 @@ export interface GateResult {
 export function evaluateGate(questions: GateQuestion[], answers: GateAnswer[]): GateResult {
   const byId = new Map(questions.map((q) => [q.id, q]));
   const disqualifiers: Disqualifier[] = [];
+  const alreadyFlagged = new Set<string>();
 
   for (const answer of answers) {
     if (answer.verdict !== 'FAIL') continue;
     const question = byId.get(answer.id);
     if (!question) continue;
     if (question.severity < BLOCKING_SEVERITY) continue;
+    // The schema does not stop the model answering one id twice; listing the same
+    // disqualifier twice would read as two separate problems.
+    if (alreadyFlagged.has(question.id)) continue;
+    alreadyFlagged.add(question.id);
     disqualifiers.push({
       id: question.id,
       question: question.question,
@@ -123,6 +128,9 @@ export async function runGate(
   questions: GateQuestion[],
 ): Promise<GateResult> {
   if (questions.length === 0) {
+    // Fail open, but say so. Silently passing everyone looks identical to a gate
+    // that ran and cleared them, which is the wrong thing to be unable to tell apart.
+    console.warn('Gate skipped: no gate questions were derived for this job description.');
     return { passed: true, answers: [], disqualifiers: [] };
   }
 

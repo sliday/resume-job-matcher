@@ -85,6 +85,16 @@ test('every blocking failure is reported, not just the first', () => {
   );
 });
 
+test('the same question answered FAIL twice is listed once', () => {
+  const result = evaluateGate(QUESTIONS, [
+    { id: 'work-auth', verdict: 'FAIL', evidence: 'Brazil' },
+    { id: 'work-auth', verdict: 'FAIL', evidence: 'Brazil / Sao Paulo' },
+  ]);
+  assert.equal(result.passed, false);
+  assert.equal(result.disqualifiers.length, 1);
+  assert.equal(result.disqualifiers[0].evidence, 'Brazil');
+});
+
 test('severity exactly at the threshold blocks', () => {
   const questions: GateQuestion[] = [
     { id: 'edge', question: 'Boundary?', severity: BLOCKING_SEVERITY, why: 'boundary' },
