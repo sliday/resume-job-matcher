@@ -39,15 +39,24 @@ Three open questions carried from the design:
 [] OCR for scanned PDFs (tesseract.js) — then retire the Python implementation
 [] Structured retry/backoff on provider 429s (max 3 attempts — circuit breaker)
 [] Batch/parallel provider mode for large candidate pools
-[] Embedding pre-filter before the gate (raised in issue #10) — N jobs x M CVs is a cross
-   product no per-call optimisation survives. Embed CVs and jobs once, cosine top-K per
-   job, then gate + score only those. 1000x1000 pairs -> 50k at K=50. Same funnel shape
-   as the gate, one level up.
-[] Cache the unified/normalised CV per candidate and reuse across jobs (issue #10) —
-   today --unify re-runs per run, so screening 1000 jobs redoes identical work 1000x.
 [] GitHub Action: eval on PR + nightly
 
 ## Done
+- 2026-08-28: Embedding pre-filter + content-keyed embedding cache (closes issue #10).
+  Problem: one LLM call per candidate is linear, and N jobs x M CVs is a cross product no
+  per-call tuning survives. A reporter asked how to run this over thousands of each.
+  Solution: `--prefilter <n>` embeds the job and every resume, keeps the n nearest by
+  cosine, and runs the gate-and-score pass only on those. Cache is keyed on resume CONTENT,
+  not filename, so a candidate is embedded once across every job screened.
+  Impact, measured end-to-end on 5 resumes with --prefilter 3: 2 skipped before any LLM
+  call, 2 gated out on work location with cited evidence, 1 scored. 6 LLM calls, $0.0025.
+  Cache reuse verified: second pass embedded=0 reused=6, 625ms -> 3ms. Vectors rounded to
+  6dp, halving the cache on disk (173K -> 85K for 6 vectors) with no ranking change.
+  Ranking sanity: against a Python/Django/payments job the Python/payments candidate ranks
+  first and the barista last. Note the pre-filter is topical only; hard constraints stay
+  the gate's job, which is why the top-ranked candidate is still correctly gated out.
+  index.ts restructured into three phases (extract all -> pre-filter -> screen survivors).
+  Checker: typecheck green, 40/40 unit tests, live CLI run.
 - 2026-08-28: C2 BARS anchors + evidence-before-number. Plan: `docs/2026-08-28-c2-anchors-plan.md`.
   Problem: criterion ratings were anchorless 0-100 with the number emitted before any
   reasoning. Same fixture scored 24 on luna and 55 on gpt-5-mini.

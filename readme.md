@@ -67,7 +67,28 @@ Modes (`--api`):
 - `anthropic` — Claude (`ANTHROPIC_API_KEY` or `CLAUDE_API_KEY`)
 - `openai` — GPT (`OPENAI_API_KEY`)
 
-Options: `--concurrency <n>` (default 4), `--threshold <n>` (invite cutoff, default 90), `--no-email`, `--analyze-jd` (rank + enhance the job description), `--unify` (standardize resumes to Markdown before scoring), `--no-analysis` (skip pool analysis).
+Options: `--concurrency <n>` (default 4), `--prefilter <n>` (see below), `--threshold <n>` (invite cutoff, default 90), `--no-email`, `--analyze-jd` (rank + enhance the job description), `--unify` (standardize resumes to Markdown before scoring), `--no-analysis` (skip pool analysis).
+
+### Large candidate pools (`--prefilter`)
+
+Scoring every resume with an LLM is linear in pool size, and screening many jobs against
+many candidates is a cross product no per-call tuning survives. `--prefilter <n>` adds a
+cheap first cut: embed the job and every resume, keep the `n` closest by cosine similarity,
+and run the expensive gate-and-score pass only on those.
+
+```bash
+npm run match -- job.txt resumes --api openai --prefilter 50
+```
+
+Embeddings are cached in `out/.embedding-cache.json`, keyed on **resume content rather than
+filename**, so a candidate is embedded once no matter how many jobs you screen them against.
+That is the difference between `jobs × candidates` embedding calls and just `candidates`.
+
+Needs `--api openai` or `--api openrouter`; Anthropic has no embeddings API. Skipped
+candidates are named in the summary, never dropped silently.
+
+A real run over 5 resumes with `--prefilter 3`: 2 skipped before any LLM call, 2 rejected by
+the gate on work location, 1 scored. Six LLM calls, $0.0025 total.
 
 Note: the TS build extracts embedded PDF text only (no OCR for scanned resumes); use the Python version for OCR and unified-resume PDF regeneration.
 
@@ -212,12 +233,3 @@ To install these packages, you can use pip:
 pip install PyPDF2 anthropic openai tqdm termcolor json5 requests beautifulsoup4 pydantic
 ```
 
-## Star History
-
-<a href="https://star-history.com/#sliday/resume-job-matcher&Date">
- <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=sliday/resume-job-matcher&type=Date&theme=dark" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=sliday/resume-job-matcher&type=Date" />
-   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=sliday/resume-job-matcher&type=Date" />
- </picture>
-</a>

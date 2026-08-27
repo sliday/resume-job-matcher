@@ -2,7 +2,8 @@ import { createAnthropic } from '@ai-sdk/anthropic';
 import { createOpenAI } from '@ai-sdk/openai';
 import { createOpenRouter } from '@openrouter/ai-sdk-provider';
 import type { LanguageModel } from 'ai';
-import { MODELS, type ApiMode } from './config.js';
+import type { EmbeddingModel } from 'ai';
+import { EMBEDDING_MODELS, MODELS, type ApiMode } from './config.js';
 
 function requireKey(name: string, value: string | undefined): string {
   if (!value) {
@@ -38,4 +39,29 @@ export function getModel(mode: ApiMode): LanguageModel {
       return openrouter(MODELS.openrouter, { plugins: [{ id: 'response-healing' }] });
     }
   }
+}
+
+/**
+ * Embedding model for --prefilter. Anthropic has no embeddings API, so that mode
+ * fails here with a usable instruction rather than at request time with a 404.
+ */
+export function getEmbeddingModel(mode: ApiMode): { model: EmbeddingModel; id: string } {
+  const id = EMBEDDING_MODELS[mode];
+  if (!id) {
+    console.error(
+      `--prefilter needs embeddings, and --api ${mode} does not provide them.\n` +
+        `Re-run with --api openai or --api openrouter, or drop --prefilter.`,
+    );
+    process.exit(1);
+  }
+  if (mode === 'openrouter') {
+    const openrouter = createOpenRouter({
+      apiKey: requireKey('OPENROUTER_API_KEY', process.env.OPENROUTER_API_KEY),
+    });
+    return { model: openrouter.textEmbeddingModel(id), id };
+  }
+  const openai = createOpenAI({
+    apiKey: requireKey('OPENAI_API_KEY', process.env.OPENAI_API_KEY),
+  });
+  return { model: openai.textEmbeddingModel(id), id };
 }
