@@ -2,7 +2,15 @@
 
 ## Overview
 
-**Resume Job Matcher** is a Python script that automates the process of matching resumes to a job description using AI. It leverages the Anthropic Claude API or OpenAI's GPT API to analyze resumes and provide a match score along with personalized email responses for candidates.
+**Resume Job Matcher** screens a folder of resume PDFs against a job description and tells you who to interview. It runs as a TypeScript CLI (`matcher/`) on Claude, GPT, or OpenRouter. A legacy Python implementation is still included for OCR and PDF regeneration.
+
+Screening is a funnel, cheapest stage first:
+
+1. **Pre-filter** (optional, `--prefilter`) — embed the job and every resume, keep the closest by cosine similarity. No LLM call per candidate, and the cache is keyed on resume content, so a candidate is embedded once across every job.
+2. **Gate** — hard constraints from the job description (work authorization, on-site requirement, licences) become pass/fail questions with a severity. Fail a blocking one and you are rejected with the resume span that disqualified you, and never reach the scoring call. Silence is never treated as failure.
+3. **Score** — survivors are rated per criterion on an anchored 0-4 scale, and every rating quotes the evidence behind it.
+
+The point of the split: a candidate who cannot legally take the job is not "a 62% match", and a score you cannot trace back to a line of the resume is not worth having.
 
 ![Area](https://github.com/user-attachments/assets/1fee4382-7462-4463-9cb1-61704eea218b)
 
