@@ -48,11 +48,18 @@
 
 The TypeScript implementation (`matcher/`) uses the Vercel AI SDK with structured outputs (zod schemas — no fragile string parsing) and scores each resume in a single model call.
 
+Requires Node 20 or newer (tested on 22). No Python needed.
+
 ```bash
 npm install
-cp .env-example .env   # add the key for your chosen mode
-npm run match -- [job_desc_file] [pdf_folder] --api openrouter
+cp .env-example .env              # add ONE key, for the mode you plan to use
+mkdir -p resumes                  # drop your candidate PDFs in here
+npm run match -- "EXAMPLE job_description.txt" resumes --api openrouter
 ```
+
+Both positionals are optional, but their defaults (`job_description.txt` and `src/`) do
+not exist in a fresh clone, so pass them explicitly the first time. Everything the run
+writes lands in `out/`.
 
 Modes (`--api`):
 
