@@ -6,55 +6,15 @@
 
 Screening is a funnel, cheapest stage first:
 
-1. **Pre-filter** (optional, `--prefilter`) — embed the job and every resume, keep the closest by cosine similarity. No LLM call per candidate, and the cache is keyed on resume content, so a candidate is embedded once across every job.
-2. **Gate** — hard constraints from the job description (work authorization, on-site requirement, licences) become pass/fail questions with a severity. Fail a blocking one and you are rejected with the resume span that disqualified you, and never reach the scoring call. Silence is never treated as failure.
-3. **Score** — survivors are rated per criterion on an anchored 0-4 scale, and every rating quotes the evidence behind it.
+1. **Pre-filter** (optional, `--prefilter`): embed the job and every resume, keep the closest by cosine similarity. No LLM call per candidate, and the cache is keyed on resume content, so a candidate is embedded once across every job.
+2. **Gate**: hard constraints from the job description (work authorization, on-site requirement, licences) become pass/fail questions with a severity. Fail a blocking one and you are rejected with the resume span that disqualified you, and never reach the scoring call. Silence is never treated as failure.
+3. **Score**: survivors are rated per criterion on an anchored 0-4 scale, and every rating quotes the evidence behind it.
 
 The point of the split: a candidate who cannot legally take the job is not "a 62% match", and a score you cannot trace back to a line of the resume is not worth having.
 
 ![Area](https://github.com/user-attachments/assets/1fee4382-7462-4463-9cb1-61704eea218b)
 
-## Features
-
-- 🔥 **Comprehensive Resume Processing**
-  - Multiple outputs: PDF and Markdown generation
-  - Standardization for fair evaluation
-  - Font customization (sans-serif, serif, monospace)
-  - Command-line options for flexibility
-
-- 🧠 **Advanced AI-Powered Analysis**
-  - Resume-job comparison using Claude/GPT API
-  - Dual AI support with runtime selection
-  - Efficient model interaction
-  - Structured data handling with Pydantic
-
-- 📊 **In-depth Evaluation & Scoring**
-  - Smart parsing with PyPDF2
-  - Multi-factor assessment: skills, experience, education, certifications
-  - Visual and content-based quality assessment
-  - 🚩 Red flag detection in critical areas
-  ![CleanShot 2024-10-09 at 17 08 09@2x](https://github.com/user-attachments/assets/e47b57e1-521a-4b21-aeb3-975af1e0f2ed)
-  - Detailed scoring with emoji and color-coded results
-
-- 📈 **Comprehensive Analytics & Reporting**
-  - Statistical insights: top, average, median, standard deviation scores
-  - Candidate distribution summary
-  - Match analysis with improvement suggestions
-  - Job description optimization recommendations
-
-- 🌐 **Enhanced Candidate Profiling**
-  - Website integration for improved matching
-  - Personalized email generation
-
-- 🛠️ **Robust System Management**
-  - Advanced logging and error handling
-  - Improved user feedback and reliability
-
-![CleanShot 2024-09-23 at 23 02 45@2x](https://github.com/user-attachments/assets/bc789343-839e-44bc-b3fb-df3cedf869a8)
-
-## Usage (TypeScript, recommended)
-
-The TypeScript implementation (`matcher/`) uses the Vercel AI SDK with structured outputs (zod schemas — no fragile string parsing) and scores each resume in a single model call.
+## Quick start
 
 Requires Node 20 or newer (tested on 22). No Python needed.
 
@@ -65,179 +25,118 @@ mkdir -p resumes                  # drop your candidate PDFs in here
 npm run match -- "EXAMPLE job_description.txt" resumes --api openrouter
 ```
 
-Both positionals are optional, but their defaults (`job_description.txt` and `src/`) do
-not exist in a fresh clone, so pass them explicitly the first time. Everything the run
-writes lands in `out/`.
+Both positionals are optional, but their defaults (`job_description.txt` and `src/`) do not exist in a fresh clone, so pass them explicitly the first time.
 
 Modes (`--api`):
 
-- `openrouter` (default) — routes through [openrouter/auto](https://openrouter.ai/openrouter/auto); needs `OPENROUTER_API_KEY`
-- `anthropic` — Claude (`ANTHROPIC_API_KEY` or `CLAUDE_API_KEY`)
-- `openai` — GPT (`OPENAI_API_KEY`)
+- `openrouter` (default): routes through [openrouter/auto](https://openrouter.ai/openrouter/auto), needs `OPENROUTER_API_KEY`
+- `anthropic`: Claude, needs `ANTHROPIC_API_KEY` or `CLAUDE_API_KEY`
+- `openai`: GPT, needs `OPENAI_API_KEY`
 
-Options: `--concurrency <n>` (default 4), `--prefilter <n>` (see below), `--threshold <n>` (invite cutoff, default 90), `--no-email`, `--analyze-jd` (rank + enhance the job description), `--unify` (standardize resumes to Markdown before scoring), `--no-analysis` (skip pool analysis).
+One key is enough. Override the model per mode with `ANTHROPIC_MODEL`, `OPENAI_MODEL`, or `OPENROUTER_MODEL`.
 
-### Large candidate pools (`--prefilter`)
+## Options
 
-Scoring every resume with an LLM is linear in pool size, and screening many jobs against
-many candidates is a cross product no per-call tuning survives. `--prefilter <n>` adds a
-cheap first cut: embed the job and every resume, keep the `n` closest by cosine similarity,
-and run the expensive gate-and-score pass only on those.
+| Flag | Effect |
+|---|---|
+| `--prefilter <n>` | Keep only the `n` resumes closest to the job before scoring. Default 0 (off). See below. |
+| `--concurrency <n>` | Parallel evaluations. Default 4. |
+| `--threshold <n>` | Score at or above which the generated email invites rather than rejects. Default 90. |
+| `--no-email` | Skip email generation. Faster and cheaper. |
+| `--analyze-jd` | Grade the job description itself and write an improved version to `job_description_enhanced.txt`. |
+| `--unify` | Normalize each resume to Markdown before scoring, and save it to `out/`. |
+| `--no-analysis` | Skip the pool-level summary. |
+
+## How scoring works
+
+Seven criteria are rated: language proficiency, education, years of experience, technical skills, certifications, soft skills, and location.
+
+Each is rated on an anchored scale rather than a bare 0-100, and the model must quote the deciding resume span **before** it rates:
+
+| Level | Meaning | Score |
+|---|---|---|
+| 4 | Direct, specific, verifiable evidence that meets or exceeds the requirement | 100 |
+| 3 | Clear evidence of a close match, minor gap | 75 |
+| 2 | Partial or adjacent evidence, claimed but not substantiated | 50 |
+| 1 | Weak or tangential evidence only | 25 |
+| 0 | Absent from the resume, or contradicted by it | 0 |
+
+The final score is the weighted mean of those seven, with weights extracted from the job description.
+
+A criterion at level 0 raises a red flag sized by that criterion's weight: 🚩 for weight 30 or more, 📍 for 20 or more, ⛳ below that.
+
+## Large candidate pools (`--prefilter`)
+
+Scoring every resume with an LLM is linear in pool size, and screening many jobs against many candidates is a cross product no per-call tuning survives. `--prefilter <n>` adds a cheap first cut: embed the job and every resume, keep the `n` closest by cosine similarity, and run the expensive gate-and-score pass only on those.
 
 ```bash
 npm run match -- job.txt resumes --api openai --prefilter 50
 ```
 
-Embeddings are cached in `out/.embedding-cache.json`, keyed on **resume content rather than
-filename**, so a candidate is embedded once no matter how many jobs you screen them against.
-That is the difference between `jobs × candidates` embedding calls and just `candidates`.
+Embeddings are cached in `out/.embedding-cache.json`, keyed on **resume content rather than filename**, so a candidate is embedded once no matter how many jobs you screen them against. That is the difference between `jobs × candidates` embedding calls and just `candidates`.
 
-Needs `--api openai` or `--api openrouter`; Anthropic has no embeddings API. Skipped
-candidates are named in the summary, never dropped silently.
+Needs `--api openai` or `--api openrouter`. Anthropic has no embeddings API.
 
-A real run over 5 resumes with `--prefilter 3`: 2 skipped before any LLM call, 2 rejected by
-the gate on work location, 1 scored. Six LLM calls, $0.0025 total.
+A real run over 5 resumes with `--prefilter 3`: 2 skipped before any LLM call, 2 rejected by the gate on work location, 1 scored. Six LLM calls, $0.0025 total.
 
-Note: the TS build extracts embedded PDF text only (no OCR for scanned resumes); use the Python version for OCR and unified-resume PDF regeneration.
+## Output
 
-## Usage (Python)
+Results print ranked, with gated-out and pre-filtered candidates listed separately so nothing disappears quietly.
 
-To run the script with the new features:
+Written to `out/`:
 
-```bash
-python resume_matcher.py [--sans-serif|--serif|--mono] [--pdf] [job_desc_file] [pdf_folder]
-```
+- `<name>_response.txt`: generated candidate email (invite or rejection, per `--threshold`)
+- `<name>_unified.md`: normalized resume, when `--unify` is set
+- `.embedding-cache.json`: embedding cache, when `--prefilter` is used
 
-- Use `--sans-serif`, `--serif`, or `--mono` to select a font preset.
-- Use `--pdf` to generate PDF versions of unified resumes.
-- Optionally specify custom paths for the job description file and PDF folder.
+Every run ends with a token and cost line. `--analyze-jd` also writes `job_description_enhanced.txt`.
 
-## Customization
+![CleanShot 2024-10-09 at 17 08 09@2x](https://github.com/user-attachments/assets/e47b57e1-521a-4b21-aeb3-975af1e0f2ed)
 
-### Adjust Logging Level
+## Known limitations
 
-Modify the logging level at the beginning of the script:
+Worth knowing before you trust a number:
 
-```python
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-```
+- **Scores are compensatory.** Strength on one criterion offsets weakness on another. Hard constraints are the gate's job precisely because the score cannot express them.
+- **Cross-model score variance is significant.** The same resume against the same job has been measured 20+ points apart across models. Treat scores as bands, not as measurements, and treat the gate decision as the reliable signal.
+- **The pre-filter is topical only.** It ranks by subject-matter closeness and knows nothing about constraints, so it can rank a disqualified candidate first. It can also drop a strong unconventional candidate whose vocabulary differs from the job description. Set `n` generously.
+- **No OCR.** The TypeScript build reads embedded PDF text only. Scanned resumes fail with a short-text error. Use the Python implementation for those.
 
-Available levels: `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`.
-
-### Change Scoring Model
-
-To change the AI model used, update the `model` parameter in the `match_resume_to_job` function:
-
-```python
-message = client.messages.create(
-    model="claude-3-5-sonnet-20240620",
-    ...
-)
-```
-
-### Modify AI Provider
-
-To switch between Anthropic and OpenAI APIs, modify the `choose_api` function call at the beginning of the script:
-
-```python
-def choose_api():
-    global chosen_api
-    prompt = "Use OpenAI API instead of Anthropic? [y/N]: "
-    choice = input(colored(prompt, "cyan")).strip().lower()
-    
-    if choice in ["y", "yes"]:
-        chosen_api = "openai"
-    else:
-        chosen_api = "anthropic"
-```
-
-### Adjust AI Model
-
-To change the AI model used, update the `model` parameter in the `talk_fast` function:
-
-```python
-response = client.chat.completions.create(
-    model="gpt-4o",  # Change this to the desired model
-    ...
-)
-```
-
-## Score Calculation
-
-The final score for each resume is calculated using a combination of two factors:
-
-1. **AI-Generated Match Score (75% weight)**: This score is based on how well the resume matches the job description, considering factors such as skills, experience, education, and other relevant criteria.
-
-2. **Resume Quality Score (25% weight)**: This score assesses the visual appeal and clarity of the resume itself, including formatting, layout, and overall presentation.
-
-The calculation process is as follows:
-
-1. The AI-generated match score and the resume quality score are both normalized to a 0-100 scale.
-2. A weighted average is calculated: 
-   `(AI_Score * 0.75 + Quality_Score * 0.25)`
-3. The result is clamped to ensure it falls within the 0-100 range.
-
-This combined approach ensures that both the content relevance and the presentation quality of the resume are taken into account in the final score.
-
-### Modify Scoring Criteria
-
-Adjust the scoring logic in the `match_resume_to_job` function's prompt as needed to better fit your specific requirements.
+Ongoing work against these is tracked in `LOOP.md`.
 
 ## Troubleshooting
 
-### Common Issues
+- **No PDF files found**: pass the resume folder explicitly. The default is `src/`, which does not exist in a fresh clone.
+- **Job description file not found**: pass the path explicitly. The default is `job_description.txt`.
+- **Missing key error**: the CLI names the exact variable it wants for your `--api` mode. Only that one is needed.
+- **PDF text extraction too short**: the PDF is a scan with no embedded text. See OCR above.
+- **`--prefilter` refuses to run**: you are on `--api anthropic`, which has no embeddings. Use `openai` or `openrouter`.
 
-- **No Resumes Found**: Ensure that resume PDFs are placed in the correct directory (`src` by default).
-- **Job Description Not Found**: Confirm that `job_description.txt` exists in the script's directory or provide the correct path.
-- **API Key Errors**: Verify that the `CLAUDE_API_KEY` environment variable is set correctly.
-- **Dependency Errors**: Install all required Python packages using `pip`.
+## Development
 
-### Adjusting Timeouts and Retries
-
-If you experience network-related errors when fetching personal websites, you may adjust the `timeout` parameter in the `check_website` function.
-
-```python
-response = requests.get(url, timeout=10)
+```bash
+npm run typecheck     # tsc --noEmit
+npm test              # unit tests (node:test)
+npm run eval          # fixture evals against a live model, costs cents
 ```
 
-## Best Practices
+`npm run eval` is the definition of green: five fixtures covering match band, red-flag firing, prompt-injection resistance, website extraction, and email personalization.
 
-- **Data Privacy**: Ensure that all candidate data is handled in compliance with relevant data protection laws and regulations.
-- **API Usage**: Be mindful of API rate limits and usage policies when using the Anthropic Claude API.
+## Legacy Python implementation
 
-## Contributing
-
-We welcome contributions! Please follow these steps:
-
-1. **Fork the Repository**: Create your own fork on GitHub.
-2. **Create a Feature Branch**: Work on your feature or fix in a new branch.
-3. **Submit a Pull Request**: Once your changes are ready, submit a pull request for review.
-
-## Acknowledgments
-
-- **Anthropic Claude API**: For providing advanced AI capabilities.
-
----
-
-Enjoy using the Resume Job Matcher script to streamline your recruitment process!
-
-## Python Packages
-
-The following Python packages are required for this project:
-
-- PyPDF2: For extracting text from PDF resumes
-- anthropic: To interact with the Anthropic Claude API for AI-powered analysis
-- tqdm: For displaying progress bars during processing
-- termcolor: To add colored output in the console
-- json5: For parsing JSON-like data with added flexibility
-- requests: To make HTTP requests for fetching website content
-- beautifulsoup4: For parsing HTML content from personal websites
-- openai: To interact with the OpenAI API for AI-powered analysis
-- pydantic: For data validation and settings management using Python type annotations
-
-To install these packages, you can use pip:
+`resume_matcher.py` predates the TypeScript rewrite. It is kept for two things the TS build does not do: OCR of scanned PDFs, and regenerating unified resumes as styled PDFs. It is scheduled for retirement once OCR lands in TypeScript.
 
 ```bash
 pip install PyPDF2 anthropic openai tqdm termcolor json5 requests beautifulsoup4 pydantic
+python resume_matcher.py [--sans-serif|--serif|--mono] [--pdf] [job_desc_file] [pdf_folder]
 ```
 
+It has a different scoring model from the TypeScript path, so its numbers are not comparable.
+
+## Contributing
+
+Fork, branch, open a pull request. Please run `npm run typecheck` and `npm test` first; `npm run eval` too if you touched matching behaviour.
+
+## Data handling
+
+Resumes are personal data. Candidate text is sent to whichever model provider you configure. Handle it in line with the data protection rules that apply to you, and check your provider's retention policy before screening real applicants.
