@@ -36,15 +36,29 @@ export const JobRequirementsSchema = z.object({
 });
 export type JobRequirements = z.infer<typeof JobRequirementsSchema>;
 
+// evidence is declared before level on purpose: structured-output generation follows
+// schema property order, so the model quotes the resume before it commits to a rating.
+const CriterionAssessment = z.object({
+  evidence: z
+    .string()
+    .describe('Exact span quoted from the resume that decides this criterion, or "not stated"'),
+  level: z
+    .number()
+    .int()
+    .min(0)
+    .max(4)
+    .describe('Anchored level 0-4. See the anchor definitions in the prompt.'),
+});
+
 export const MatchEvaluationSchema = z.object({
   scores: z.object({
-    language_proficiency: int0to100,
-    education_level: int0to100,
-    experience_years: int0to100,
-    technical_skills: int0to100,
-    certifications: int0to100,
-    soft_skills: int0to100,
-    location: int0to100,
+    language_proficiency: CriterionAssessment,
+    education_level: CriterionAssessment,
+    experience_years: CriterionAssessment,
+    technical_skills: CriterionAssessment,
+    certifications: CriterionAssessment,
+    soft_skills: CriterionAssessment,
+    location: CriterionAssessment,
   }),
   match_reasons: z
     .array(z.string())
