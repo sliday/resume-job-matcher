@@ -39,6 +39,12 @@ Three open questions carried from the design:
 [] OCR for scanned PDFs (tesseract.js) — then retire the Python implementation
 [] Structured retry/backoff on provider 429s (max 3 attempts — circuit breaker)
 [] Batch/parallel provider mode for large candidate pools
+[] Embedding pre-filter before the gate (raised in issue #10) — N jobs x M CVs is a cross
+   product no per-call optimisation survives. Embed CVs and jobs once, cosine top-K per
+   job, then gate + score only those. 1000x1000 pairs -> 50k at K=50. Same funnel shape
+   as the gate, one level up.
+[] Cache the unified/normalised CV per candidate and reuse across jobs (issue #10) —
+   today --unify re-runs per run, so screening 1000 jobs redoes identical work 1000x.
 [] GitHub Action: eval on PR + nightly
 
 ## Done
