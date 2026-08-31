@@ -17,7 +17,7 @@
     "ai": "^7.0.0",
     "dotenv": "^16.4.0",
     "picocolors": "^1.1.0",
-    "unpdf": "^0.12.0",
+    "unpdf": "^1.8.1",
     "zod": "^3.25.76"
   },
   "devDependencies": {
