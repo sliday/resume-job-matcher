@@ -41,7 +41,7 @@ export const EMBEDDING_MODELS: Partial<Record<ApiMode, string>> = {
 };
 
 export const MODELS: Record<ApiMode, string> = {
-  anthropic: process.env.ANTHROPIC_MODEL ?? 'claude-sonnet-4-5',
+  anthropic: process.env.ANTHROPIC_MODEL ?? 'claude-sonnet-5-5',
   openai: process.env.OPENAI_MODEL ?? 'gpt-5.6-luna',
   openrouter: process.env.OPENROUTER_MODEL ?? 'openrouter/auto',
 };
